@@ -50,7 +50,7 @@ To forcibly add an effect to all PCs in a scene, use the PCs button in the Scene
 1. Copy  and paste this link into Foundry ⟶ Add-on Modules ⟶ Install Module ⟶ Manifest URL:
 
 ```
- https://raw.githubusercontent.com/Tristyn159/dh-conditional-effects/main/module.json
+ https://raw.githubusercontent.com/Tristyn159/dh-cond-fx/main/module.json
 
 ```
  
