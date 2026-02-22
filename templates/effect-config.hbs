@@ -112,6 +112,19 @@
         </select>
       </div>
 
+      <div class="dce-form-row dce-field-incoming-damage-type {{#unless showIncomingDamageType}}dce-hidden{{/unless}}">
+        <label>Damage Type
+          <span class="dce-hint-icon" title="Match a specific incoming damage type, or Any to match all.">
+            <i class="fas fa-circle-question"></i>
+          </span>
+        </label>
+        <select name="condition.incomingDamageType">
+          {{#each incomingDamageTypes}}
+          <option value="{{id}}" {{#if (eq ../effect.condition.incomingDamageType id)}}selected{{/if}}>{{label}}</option>
+          {{/each}}
+        </select>
+      </div>
+
     </div>
   </fieldset>
 
@@ -145,6 +158,30 @@
         <div class="dce-form-row">
           <label>Flat Bonus</label>
           <input type="number" name="effect.bonus" value="{{effect.effect.bonus}}" step="1" />
+        </div>
+      </div>
+
+      {{!-- Damage multiplier --}}
+      <div class="dce-field-damage-multiplier {{#unless showDamageMultiplier}}dce-hidden{{/unless}}">
+        <div class="dce-form-row">
+          <label>Damage Type
+            <span class="dce-hint-icon" title="Only multiply incoming damage of this type. Use 'Any' to apply to all damage.">
+              <i class="fas fa-circle-question"></i>
+            </span>
+          </label>
+          <select name="effect.incomingDamageType">
+            {{#each incomingDamageTypes}}
+            <option value="{{id}}" {{#if (eq ../effect.effect.incomingDamageType id)}}selected{{/if}}>{{label}}</option>
+            {{/each}}
+          </select>
+        </div>
+        <div class="dce-form-row">
+          <label>Multiplier
+            <span class="dce-hint-icon" title="e.g. 2 = double damage, 0.5 = half damage. Applied before damage thresholds are calculated.">
+              <i class="fas fa-circle-question"></i>
+            </span>
+          </label>
+          <input type="number" name="effect.damageMultiplier" value="{{effect.effect.damageMultiplier}}" step="0.1" min="0" />
         </div>
       </div>
 

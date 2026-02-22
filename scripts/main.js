@@ -4,7 +4,7 @@
 
 import {
     MODULE_ID, FLAG_ASSIGNED, FLAG_ACTOR, APPLICABLE_ITEM_TYPES, ADV_MODE,
-    getAllEffects, STATUSES, ATTRIBUTES, DAMAGE_TYPES,
+    getAllEffects, STATUSES, ATTRIBUTES, DAMAGE_TYPES, INCOMING_DAMAGE_TYPES,
     registerSettings, summarizeCondition, summarizeEffect,
     ConditionalEffectsManager, isEffectActive,
     getPcToggles,
@@ -187,8 +187,16 @@ function _isItemActive(item) {
     }
 }
 
-function _evaluateCondition(condition, { self, target, action }) {
+function _evaluateCondition(condition, { self, target, action, incomingDamageTypes }) {
     if (condition.type === 'always') return true;
+
+    if (condition.type === 'damage_type') {
+        // Only valid when incomingDamageTypes is provided (i.e., at preTakeDamage time)
+        if (!incomingDamageTypes) return false;
+        const wanted = condition.incomingDamageType ?? 'any';
+        if (wanted === 'any') return true;
+        return incomingDamageTypes.has(wanted);
+    }
 
     /**if (condition.type === 'range') {
         if (condition.range === 'any') return true;
@@ -393,6 +401,7 @@ function _registerActorSheetHooks() {
     Hooks.on('renderActorSheet',           _onRenderActorSheet);
     Hooks.on('renderCharacterSheet',       _onRenderActorSheet);
     Hooks.on('renderDHCharacterSheet',     _onRenderActorSheet);
+    Hooks.on('renderAdversarySheet',       _onRenderAdversarySheet);
 }
 
 async function _onRenderActorSheet(app, html, _context, _options) {
@@ -406,6 +415,16 @@ async function _onRenderActorSheet(app, html, _context, _options) {
 
     // Inject actor-level effects section into features tab
     await _injectActorEffectsSection(rootEl, actor, app);
+}
+
+async function _onRenderAdversarySheet(app, html, _context, _options) {
+    const rootEl = html instanceof jQuery ? html[0] : html;
+    const actor  = app.document ?? app.object ?? app.actor;
+    if (!actor || !(actor instanceof Actor)) return;
+    if (!actor.isOwner) return;
+
+    // Inject into the features tab on the adversary sheet
+    await _injectAdversaryEffectsSection(rootEl, actor, app);
 }
 
 function _injectActorItemRowIndicators(rootEl, actor) {
@@ -487,6 +506,65 @@ async function _injectActorEffectsSection(rootEl, actor, app) {
     });
 }
 
+async function _injectAdversaryEffectsSection(rootEl, actor, app) {
+    rootEl.querySelector('.dce-actor-section')?.remove();
+
+    // Inject at the end of the features tab
+    const featuresTab = rootEl.querySelector('.tab.features')
+        ?? rootEl.querySelector('[data-tab="features"]')
+        ?? rootEl.querySelector('section.features');
+    if (!featuresTab) return;
+
+    const actorIds      = actor.getFlag(MODULE_ID, FLAG_ACTOR) ?? [];
+    const globalEffects = getAllEffects();
+    const assignedEffects = actorIds
+        .map(id => globalEffects.find(e => e.id === id))
+        .filter(Boolean)
+        .map(e => ({
+            ...e,
+            conditionSummary: summarizeCondition(e.condition),
+            effectSummary:    summarizeEffect(e.effect),
+            beneficialIcon:   e.beneficial ? 'fa-shield-heart dce-beneficial' : 'fa-skull-crossbones dce-detrimental',
+        }));
+
+    const sectionHtml = await renderTemplate(
+        `modules/${MODULE_ID}/templates/actor-effects.hbs`,
+        { assignedEffects }
+    );
+    featuresTab.insertAdjacentHTML('beforeend', sectionHtml);
+
+    const dropZone = featuresTab.querySelector('.dce-actor-drop-zone');
+    if (dropZone) {
+        dropZone.addEventListener('dragover', event => {
+            event.preventDefault();
+            event.dataTransfer.dropEffect = 'copy';
+            dropZone.classList.add('dce-drag-over');
+        });
+        dropZone.addEventListener('dragleave', () => dropZone.classList.remove('dce-drag-over'));
+        dropZone.addEventListener('drop', async event => {
+            event.preventDefault();
+            dropZone.classList.remove('dce-drag-over');
+            const data = _tryParseTransfer(event);
+            if (data?.type !== 'dce-conditional-effect') return;
+            const existing = actor.getFlag(MODULE_ID, FLAG_ACTOR) ?? [];
+            if (existing.includes(data.effectId)) {
+                ui.notifications.warn('This effect is already assigned to this adversary.');
+                return;
+            }
+            await actor.setFlag(MODULE_ID, FLAG_ACTOR, [...existing, data.effectId]);
+            app.render();
+        });
+    }
+
+    featuresTab.querySelectorAll('.dce-remove-actor-effect[data-effect-id]').forEach(btn => {
+        btn.addEventListener('click', async () => {
+            const updated = (actor.getFlag(MODULE_ID, FLAG_ACTOR) ?? []).filter(id => id !== btn.dataset.effectId);
+            await actor.setFlag(MODULE_ID, FLAG_ACTOR, updated);
+            app.render();
+        });
+    });
+}
+
 function _tryParseTransfer(event) {
     try {
         const raw = event.dataTransfer?.getData('text/plain');
@@ -503,6 +581,7 @@ function _registerRollHooks() {
     Hooks.on('daggerheart.preRollFate', _onPreRollFate);       // Hope/Fear fate roll (not evasion)
     Hooks.on('daggerheart.preApplyDamageAction', _onPreApplyDamage); // damage reduction
     Hooks.on('daggerheart.postApplyDamageAction', _onPostApplyDamage); // status on hit
+    Hooks.on('daggerheart.preTakeDamage', _onPreTakeDamage);   // damage multiplier
 }
 
 // ── Duality roll (hit roll) — advantage, disadvantage, roll bonus ─────────────
@@ -682,6 +761,56 @@ function _applyDamageBonusToFormulas(damageConfig) {
 
 
 function _onPreApplyDamage(_action, _config) {}
+
+/**
+ * Hook: daggerheart.preTakeDamage
+ * Fires on the defender's actor before damage is applied.
+ * Applies damage_multiplier effects assigned to the actor.
+ * @param {Actor} actor    - The actor taking damage
+ * @param {object} damages - The damage object: { hitPoints: { parts: [{total, damageTypes, ...}] } }
+ */
+function _onPreTakeDamage(actor, damages) {
+    if (!actor || !damages) return;
+
+    const effects = _getActorConditionalEffects(actor).filter(
+        e => e.effect.type === 'damage_multiplier'
+    );
+    if (!effects.length) return;
+
+    for (const [key, damage] of Object.entries(damages)) {
+        if (!damage?.parts?.length) continue;
+        for (const part of damage.parts) {
+            // Collect all damage types in this part as a Set
+            let partTypes;
+            if (part.damageTypes instanceof Set)        partTypes = part.damageTypes;
+            else if (Array.isArray(part.damageTypes))   partTypes = new Set(part.damageTypes);
+            else if (part.damageTypes)                  partTypes = new Set(Object.values(part.damageTypes));
+            else                                        partTypes = new Set(['physical']);
+
+            for (const condEffect of effects) {
+                const eff = condEffect.effect;
+                const multiplier = Number(eff.damageMultiplier ?? 2);
+                if (!multiplier || multiplier === 1) continue;
+
+                // Evaluate condition, passing incomingDamageTypes for damage_type conditions
+                if (!_evaluateCondition(condEffect.condition, {
+                    self: actor,
+                    target: null,
+                    action: null,
+                    incomingDamageTypes: partTypes,
+                })) continue;
+
+                // Check that this multiplier's incomingDamageType matches the part (effect-level filter)
+                const wantedType = eff.incomingDamageType ?? 'any';
+                if (wantedType !== 'any' && !partTypes.has(wantedType)) continue;
+
+                const original = part.total;
+                part.total = Math.ceil(part.total * multiplier);
+                console.log(`${MODULE_ID} | Damage multiplier ×${multiplier} from "${condEffect.name}" on ${actor.name}: ${original} → ${part.total} (${[...partTypes].join(', ')})`);
+            }
+        }
+    }
+}
 
 // ── Status on hit (postApplyDamageAction) ─────────────────────────────────────
 

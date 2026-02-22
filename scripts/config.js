@@ -57,21 +57,23 @@ export const OPERATORS = [
 ];
 
 export const CONDITION_TYPES = [
-    { id: 'always',    label: 'Always (unconditional)'       },
-    { id: 'status',    label: 'Subject has Status/Condition' },
-    { id: 'attribute', label: 'Subject Attribute Value'      },
-    /**{ id: 'range',     label: 'Attack Range'                 },  -- need to fix*/
-    { id: 'weapon',    label: 'Weapon Slot'                  },
+    { id: 'always',      label: 'Always (unconditional)'       },
+    { id: 'status',      label: 'Subject has Status/Condition' },
+    { id: 'attribute',   label: 'Subject Attribute Value'      },
+    /**{ id: 'range',       label: 'Attack Range'                 },  -- need to fix*/
+    { id: 'weapon',      label: 'Weapon Slot'                  },
+    { id: 'damage_type', label: 'Incoming Damage Type'         },
 ];
 
 export const EFFECT_TYPES = [
-    { id: 'damage_bonus',     label: 'Damage Bonus (dice and/or flat)'   },
-    { id: 'damage_reduction', label: 'Damage Threshold Bonus (major / severe)' },
-    { id: 'defense_bonus',    label: 'Defense / Evasion Bonus (flat)'    },
-    { id: 'status_on_hit',    label: 'Apply Status to Target on Hit'     },
-    { id: 'roll_bonus',       label: 'Roll Bonus (flat)'                 },
-    { id: 'advantage',        label: 'Grant Advantage'                   },
-    { id: 'disadvantage',     label: 'Force Disadvantage'                },
+    { id: 'damage_bonus',      label: 'Damage Bonus (dice and/or flat)'              },
+    { id: 'damage_multiplier', label: 'Damage Multiplier (multiply damage taken)'    },
+    { id: 'damage_reduction',  label: 'Damage Threshold Bonus (major / severe)'      },
+    { id: 'defense_bonus',     label: 'Defense / Evasion Bonus (flat)'               },
+    { id: 'status_on_hit',     label: 'Apply Status to Target on Hit'                },
+    { id: 'roll_bonus',        label: 'Roll Bonus (flat)'                            },
+    { id: 'advantage',         label: 'Grant Advantage'                              },
+    { id: 'disadvantage',      label: 'Force Disadvantage'                           },
 ];
 
 export const DAMAGE_TYPES = [
@@ -80,6 +82,12 @@ export const DAMAGE_TYPES = [
     { id: 'primaryWeapon',   label: 'Primary Weapon'           },
     { id: 'secondaryWeapon', label: 'Secondary Weapon'         },
     { id: 'any',             label: 'Any (physical + magical)' },
+];
+
+export const INCOMING_DAMAGE_TYPES = [
+    { id: 'physical', label: 'Physical' },
+    { id: 'magical',  label: 'Magical'  },
+    { id: 'any',      label: 'Any'      },
 ];
 
 /**export const RANGE_TYPES = [
@@ -102,25 +110,28 @@ export function defaultEffect() {
         enabled:     true,
         beneficial:  true,
         condition: {
-            type:       'always',
-            subject:    'target',
-            status:     'vulnerable',
-            attribute:  'hope',
-            operator:   '>=',
-            value:      1,
-            /**range:      'any',*/
-            weaponSlot: 'any',
+            type:               'always',
+            subject:            'target',
+            status:             'vulnerable',
+            attribute:          'hope',
+            operator:           '>=',
+            value:              1,
+            /**range:           'any',*/
+            weaponSlot:         'any',
+            incomingDamageType: 'any',
         },
         effect: {
-            type:          'damage_bonus',
-            damageType:    'physical',
-            dice:          '',
-            bonus:         0,
-            rollBonus:     0,
-            thresholdMajor:  0,
-            thresholdSevere: 0,
-            defenseBonus:  0,
-            statusToApply: 'vulnerable',
+            type:              'damage_bonus',
+            damageType:        'physical',
+            incomingDamageType: 'any',
+            dice:              '',
+            bonus:             0,
+            rollBonus:         0,
+            thresholdMajor:    0,
+            thresholdSevere:   0,
+            defenseBonus:      0,
+            statusToApply:     'vulnerable',
+            damageMultiplier:  2,
         },
     };
 }
@@ -218,6 +229,10 @@ export function summarizeCondition(condition) {
         return `${subject} ${a} ${condition.operator} ${condition.value}`;
     }
     /**if (condition.type === 'range')  return `Range: ${RANGE_TYPES.find(r => r.id === condition.range)?.label ?? condition.range}`;*/
+    if (condition.type === 'damage_type') {
+        const dt = INCOMING_DAMAGE_TYPES.find(d => d.id === condition.incomingDamageType)?.label ?? condition.incomingDamageType;
+        return `Incoming: ${dt} damage`;
+    }
     if (condition.type === 'weapon') return `Slot: ${WEAPON_SLOTS.find(w => w.id === condition.weaponSlot)?.label ?? condition.weaponSlot}`;
     return '—';
 }
@@ -231,6 +246,10 @@ export function summarizeEffect(effect) {
         else if (effect.bonus < 0) parts.push(`${effect.bonus}`);
         const dmg = DAMAGE_TYPES.find(d => d.id === effect.damageType)?.label ?? effect.damageType;
         return `${parts.join('') || '0'} ${dmg} dmg`;
+    }
+    if (effect.type === 'damage_multiplier') {
+        const dt = INCOMING_DAMAGE_TYPES.find(d => d.id === effect.incomingDamageType)?.label ?? (effect.incomingDamageType ?? 'Any');
+        return `×${effect.damageMultiplier ?? 2} ${dt} damage taken`;
     }
     if (effect.type === 'damage_reduction') {
         const maj = effect.thresholdMajor  ?? 0;
@@ -398,17 +417,19 @@ export class ConditionalEffectConfig extends HandlebarsApplicationMixin(Applicat
             effect, effectId: this.effectId,
             statuses: STATUSES, attributes: ATTRIBUTES, operators: OPERATORS,
             conditionTypes: CONDITION_TYPES, effectTypes: EFFECT_TYPES,
-            damageTypes: DAMAGE_TYPES,/** rangeTypes: RANGE_TYPES,*/ weaponSlots: WEAPON_SLOTS,
-            showSubject:         cond.type === 'status' || cond.type === 'attribute',
-            showStatus:          cond.type === 'status',
-            showAttribute:       cond.type === 'attribute',
-            /**showRange:           cond.type === 'range',*/
-            showWeaponSlot:      cond.type === 'weapon',
-            showDamageBonus:     eff.type  === 'damage_bonus',
-            showDamageReduction: eff.type  === 'damage_reduction',
-            showDefenseBonus:    eff.type  === 'defense_bonus',
-            showStatusOnHit:     eff.type  === 'status_on_hit',
-            showRollBonus:       eff.type  === 'roll_bonus',
+            damageTypes: DAMAGE_TYPES, incomingDamageTypes: INCOMING_DAMAGE_TYPES,/** rangeTypes: RANGE_TYPES,*/ weaponSlots: WEAPON_SLOTS,
+            showSubject:          cond.type === 'status' || cond.type === 'attribute',
+            showStatus:           cond.type === 'status',
+            showAttribute:        cond.type === 'attribute',
+            /**showRange:            cond.type === 'range',*/
+            showWeaponSlot:       cond.type === 'weapon',
+            showIncomingDamageType: cond.type === 'damage_type',
+            showDamageBonus:      eff.type  === 'damage_bonus',
+            showDamageMultiplier: eff.type  === 'damage_multiplier',
+            showDamageReduction:  eff.type  === 'damage_reduction',
+            showDefenseBonus:     eff.type  === 'defense_bonus',
+            showStatusOnHit:      eff.type  === 'status_on_hit',
+            showRollBonus:        eff.type  === 'roll_bonus',
             enabledStr:          String(effect.enabled),
             beneficialStr:       String(effect.beneficial),
         };
@@ -442,6 +463,7 @@ export class ConditionalEffectConfig extends HandlebarsApplicationMixin(Applicat
             if (raw.effect)    raw.effect.thresholdMajor   = Number(raw.effect.thresholdMajor   ?? 0);
             if (raw.effect)    raw.effect.thresholdSevere  = Number(raw.effect.thresholdSevere  ?? 0);
             if (raw.effect)    raw.effect.defenseBonus     = Number(raw.effect.defenseBonus     ?? 0);
+            if (raw.effect)    raw.effect.damageMultiplier = Number(raw.effect.damageMultiplier ?? 2);
             if (this.effectId) await updateEffect(this.effectId, raw);
             else await createEffect(raw);
             this._onSave?.();
@@ -452,16 +474,18 @@ export class ConditionalEffectConfig extends HandlebarsApplicationMixin(Applicat
     _updateVisibility() {
         const condType = this.element.querySelector('[name="condition.type"]')?.value;
         const effType  = this.element.querySelector('[name="effect.type"]')?.value;
-        this._toggle('.dce-field-subject',          condType === 'status' || condType === 'attribute');
-        this._toggle('.dce-field-status',           condType === 'status');
-        this._toggle('.dce-field-attribute',        condType === 'attribute');
+        this._toggle('.dce-field-subject',             condType === 'status' || condType === 'attribute');
+        this._toggle('.dce-field-status',              condType === 'status');
+        this._toggle('.dce-field-attribute',           condType === 'attribute');
         /**this._toggle('.dce-field-range',            condType === 'range');*/
-        this._toggle('.dce-field-weapon-slot',      condType === 'weapon');
-        this._toggle('.dce-field-damage-bonus',     effType  === 'damage_bonus');
-        this._toggle('.dce-field-damage-reduction', effType  === 'damage_reduction');
-        this._toggle('.dce-field-defense-bonus',    effType  === 'defense_bonus');
-        this._toggle('.dce-field-status-on-hit',    effType  === 'status_on_hit');
-        this._toggle('.dce-field-roll-bonus',       effType  === 'roll_bonus');
+        this._toggle('.dce-field-weapon-slot',         condType === 'weapon');
+        this._toggle('.dce-field-incoming-damage-type', condType === 'damage_type');
+        this._toggle('.dce-field-damage-bonus',        effType  === 'damage_bonus');
+        this._toggle('.dce-field-damage-multiplier',   effType  === 'damage_multiplier');
+        this._toggle('.dce-field-damage-reduction',    effType  === 'damage_reduction');
+        this._toggle('.dce-field-defense-bonus',       effType  === 'defense_bonus');
+        this._toggle('.dce-field-status-on-hit',       effType  === 'status_on_hit');
+        this._toggle('.dce-field-roll-bonus',          effType  === 'roll_bonus');
     }
 
     _toggle(selector, visible) {
