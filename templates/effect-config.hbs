@@ -1,0 +1,216 @@
+<div class="dce-config-body">
+
+  <fieldset class="dce-fieldset">
+    <legend>Basic Info</legend>
+    <div class="dce-fieldset-inner">
+      <div class="dce-form-row">
+        <label>Name</label>
+        <input type="text" name="name" value="{{effect.name}}" required />
+      </div>
+      <div class="dce-form-row">
+        <label>Description</label>
+        <input type="text" name="description" value="{{effect.description}}" placeholder="Optional note" />
+      </div>
+      <div class="dce-form-row">
+        <label>Enabled</label>
+        <select name="enabled">
+          <option value="true"  {{#if (eq enabledStr "true")}} selected{{/if}}>Yes</option>
+          <option value="false" {{#if (eq enabledStr "false")}}selected{{/if}}>No</option>
+        </select>
+      </div>
+      <div class="dce-form-row">
+        <label>Polarity
+          <span class="dce-hint-icon" title="Beneficial: the item owner gains this effect. Detrimental: attackers targeting the owner gain it.">
+            <i class="fas fa-circle-question"></i>
+          </span>
+        </label>
+        <input type="hidden" name="beneficial" value="{{beneficialStr}}" />
+        <div class="dce-polarity-toggle">
+          <button type="button" class="dce-polarity-btn {{#if (eq beneficialStr "true")}}active-beneficial{{/if}}" data-polarity="true">
+            <i class="fas fa-shield-heart"></i> Beneficial
+          </button>
+          <button type="button" class="dce-polarity-btn {{#if (eq beneficialStr "false")}}active-detrimental{{/if}}" data-polarity="false">
+            <i class="fas fa-skull-crossbones"></i> Detrimental
+          </button>
+        </div>
+      </div>
+    </div>
+  </fieldset>
+
+  <fieldset class="dce-fieldset">
+    <legend>Condition — when does it apply?</legend>
+    <div class="dce-fieldset-inner">
+
+      <div class="dce-form-row">
+        <label>Condition Type</label>
+        <select name="condition.type">
+          {{#each conditionTypes}}
+          <option value="{{id}}" {{#if (eq ../effect.condition.type id)}}selected{{/if}}>{{label}}</option>
+          {{/each}}
+        </select>
+      </div>
+
+      <div class="dce-form-row dce-field-subject {{#unless showSubject}}dce-hidden{{/unless}}">
+        <label>Check on
+          <span class="dce-hint-icon" title="Self = the item's owner. Target = whoever the owner is targeting.">
+            <i class="fas fa-circle-question"></i>
+          </span>
+        </label>
+        <select name="condition.subject">
+          <option value="self"   {{#if (eq effect.condition.subject "self")}}  selected{{/if}}>Self (item owner)</option>
+          <option value="target" {{#if (eq effect.condition.subject "target")}}selected{{/if}}>Target</option>
+        </select>
+      </div>
+
+      <div class="dce-form-row dce-field-status {{#unless showStatus}}dce-hidden{{/unless}}">
+        <label>Status / Condition</label>
+        <select name="condition.status">
+          {{#each statuses}}
+          <option value="{{id}}" {{#if (eq ../effect.condition.status id)}}selected{{/if}}>{{label}}</option>
+          {{/each}}
+        </select>
+      </div>
+
+      <div class="dce-field-attribute {{#unless showAttribute}}dce-hidden{{/unless}}">
+        <div class="dce-form-row">
+          <label>Attribute</label>
+          <select name="condition.attribute">
+            {{#each attributes}}
+            <option value="{{id}}" {{#if (eq ../effect.condition.attribute id)}}selected{{/if}}>{{label}}</option>
+            {{/each}}
+          </select>
+        </div>
+        <div class="dce-form-row">
+          <label>Operator</label>
+          <select name="condition.operator">
+            {{#each operators}}
+            <option value="{{id}}" {{#if (eq ../effect.condition.operator id)}}selected{{/if}}>{{label}}</option>
+            {{/each}}
+          </select>
+        </div>
+        <div class="dce-form-row">
+          <label>Value</label>
+          <input type="number" name="condition.value" value="{{effect.condition.value}}" step="1" />
+        </div>
+      </div>
+
+      <div class="dce-form-row dce-field-range {{#unless showRange}}dce-hidden{{/unless}}">
+        <label>Range</label>
+        <select name="condition.range">
+          {{#each rangeTypes}}
+          <option value="{{id}}" {{#if (eq ../effect.condition.range id)}}selected{{/if}}>{{label}}</option>
+          {{/each}}
+        </select>
+      </div>
+
+      <div class="dce-form-row dce-field-weapon-slot {{#unless showWeaponSlot}}dce-hidden{{/unless}}">
+        <label>Weapon Slot</label>
+        <select name="condition.weaponSlot">
+          {{#each weaponSlots}}
+          <option value="{{id}}" {{#if (eq ../effect.condition.weaponSlot id)}}selected{{/if}}>{{label}}</option>
+          {{/each}}
+        </select>
+      </div>
+
+    </div>
+  </fieldset>
+
+  <fieldset class="dce-fieldset">
+    <legend>Effect — what does it do?</legend>
+    <div class="dce-fieldset-inner">
+
+      <div class="dce-form-row">
+        <label>Effect Type</label>
+        <select name="effect.type">
+          {{#each effectTypes}}
+          <option value="{{id}}" {{#if (eq ../effect.effect.type id)}}selected{{/if}}>{{label}}</option>
+          {{/each}}
+        </select>
+      </div>
+
+      {{!-- Damage bonus --}}
+      <div class="dce-field-damage-bonus {{#unless showDamageBonus}}dce-hidden{{/unless}}">
+        <div class="dce-form-row">
+          <label>Damage Type</label>
+          <select name="effect.damageType">
+            {{#each damageTypes}}
+            <option value="{{id}}" {{#if (eq ../effect.effect.damageType id)}}selected{{/if}}>{{label}}</option>
+            {{/each}}
+          </select>
+        </div>
+        <div class="dce-form-row">
+          <label>Extra Dice <span class="dce-hint-icon" title="e.g. 1d6 or 2d4"><i class="fas fa-circle-question"></i></span></label>
+          <input type="text" name="effect.dice" value="{{effect.effect.dice}}" placeholder="e.g. 1d6" />
+        </div>
+        <div class="dce-form-row">
+          <label>Flat Bonus</label>
+          <input type="number" name="effect.bonus" value="{{effect.effect.bonus}}" step="1" />
+        </div>
+      </div>
+
+      {{!-- Damage threshold bonus --}}
+      <div class="dce-field-damage-reduction {{#unless showDamageReduction}}dce-hidden{{/unless}}">
+        <div class="dce-form-row">
+          <label>Major Threshold Bonus
+            <span class="dce-hint-icon" title="Added to the actor's Major damage threshold (system.damageThresholds.major).">
+              <i class="fas fa-circle-question"></i>
+            </span>
+          </label>
+          <input type="number" name="effect.thresholdMajor" value="{{effect.effect.thresholdMajor}}" step="1" min="0" />
+        </div>
+        <div class="dce-form-row">
+          <label>Severe Threshold Bonus
+            <span class="dce-hint-icon" title="Added to the actor's Severe damage threshold (system.damageThresholds.severe).">
+              <i class="fas fa-circle-question"></i>
+            </span>
+          </label>
+          <input type="number" name="effect.thresholdSevere" value="{{effect.effect.thresholdSevere}}" step="1" min="0" />
+        </div>
+      </div>
+
+      {{!-- Defense / evasion bonus --}}
+      <div class="dce-field-defense-bonus {{#unless showDefenseBonus}}dce-hidden{{/unless}}">
+        <div class="dce-form-row">
+          <label>Evasion Bonus (flat)
+            <span class="dce-hint-icon" title="Added to the reaction/fate roll for evasion.">
+              <i class="fas fa-circle-question"></i>
+            </span>
+          </label>
+          <input type="number" name="effect.defenseBonus" value="{{effect.effect.defenseBonus}}" step="1" />
+        </div>
+      </div>
+
+      {{!-- Status on hit --}}
+      <div class="dce-field-status-on-hit {{#unless showStatusOnHit}}dce-hidden{{/unless}}">
+        <div class="dce-form-row">
+          <label>Status to Apply</label>
+          <select name="effect.statusToApply">
+            {{#each statuses}}
+            <option value="{{id}}" {{#if (eq ../effect.effect.statusToApply id)}}selected{{/if}}>{{label}}</option>
+            {{/each}}
+          </select>
+        </div>
+      </div>
+
+      {{!-- Roll bonus --}}
+      <div class="dce-field-roll-bonus {{#unless showRollBonus}}dce-hidden{{/unless}}">
+        <div class="dce-form-row">
+          <label>Roll Bonus (flat)
+            <span class="dce-hint-icon" title="Added to the duality/d20 roll total.">
+              <i class="fas fa-circle-question"></i>
+            </span>
+          </label>
+          <input type="number" name="effect.rollBonus" value="{{effect.effect.rollBonus}}" step="1" />
+        </div>
+      </div>
+
+    </div>
+  </fieldset>
+
+  <div class="dce-form-footer">
+    <button type="submit" class="dce-btn-primary">
+      <i class="fas fa-save"></i> Save Effect
+    </button>
+  </div>
+
+</div>

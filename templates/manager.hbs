@@ -1,0 +1,142 @@
+<div class="dce-manager-wrap">
+
+  <div class="dce-manager-tabs">
+    <button class="dce-tab-btn {{#if (eq activeTab 'effects')}}active{{/if}}" data-tab="effects">
+      <i class="fas fa-list-ul"></i> Effects
+    </button>
+    <button class="dce-tab-btn {{#if (eq activeTab 'scene')}}active{{/if}}" data-tab="scene">
+      <i class="fas fa-map"></i> Scene Overrides
+    </button>
+  </div>
+
+  {{!-- ── Effects Tab ── --}}
+  {{#if (eq activeTab 'effects')}}
+  <div class="dce-manager-toolbar">
+    <p class="dce-hint">
+      <i class="fas fa-circle-info"></i>
+      Create effects, then <strong>drag a row</strong> onto any item or character sheet to assign it.
+    </p>
+    <button type="button" data-action="newEffect" class="dce-btn-primary">
+      <i class="fas fa-plus"></i> New Effect
+    </button>
+  </div>
+
+    <div class="dce-manager-warnings">
+    <p class="dce-warning"><i class="fas fa-triangle-exclamation"></i>
+      <strong>Evasion</strong> and <strong>Damage Threshold</strong> effects should be applied to armor items where possible.
+      Assigning these to actors directly can cause incorrect stacking or loss of values when armor is unequipped — prefer assigning them to armor.
+    </p>
+  </div>
+
+  {{#if isEmpty}}
+  <div class="dce-empty-state">
+    <i class="fas fa-wand-magic-sparkles fa-3x"></i>
+    <p>No conditional effects defined yet.</p>
+    <p>Click <strong>New Effect</strong> to create your first one.</p>
+  </div>
+  {{else}}
+  <div class="dce-list">
+    <div class="dce-list-header">
+      <span class="dce-col-drag"></span>
+      <span class="dce-col-name">Name</span>
+      <span class="dce-col-type">Type</span>
+      <span class="dce-col-condition">Condition</span>
+      <span class="dce-col-effect">Effect</span>
+      <span class="dce-col-actions">Actions</span>
+    </div>
+    {{#each effects}}
+    <div class="dce-effect-row {{#unless effectiveEnabled}}dce-row-disabled{{/unless}}"
+         data-effect-id="{{id}}" draggable="true" title="Drag onto an item or actor sheet to assign">
+      <span class="dce-col-drag"><i class="fas fa-grip-vertical"></i></span>
+      <span class="dce-col-name">
+        <i class="fas {{beneficialIcon}}" title="{{beneficialLabel}}"></i>
+        {{name}}
+        {{#if description}}
+        <span class="dce-desc-icon" title="{{description}}"><i class="fas fa-circle-question"></i></span>
+        {{/if}}
+      </span>
+      <span class="dce-col-type"><span class="dce-badge">{{effect.type}}</span></span>
+      <span class="dce-col-condition dce-muted">{{conditionSummary}}</span>
+      <span class="dce-col-effect dce-muted">{{effectSummary}}</span>
+      <span class="dce-col-actions">
+        <button type="button" data-action="toggleEffect" title="{{#if enabled}}Disable{{else}}Enable{{/if}}">
+          <i class="fas {{#if enabled}}fa-toggle-on dce-on{{else}}fa-toggle-off{{/if}}"></i>
+        </button>
+        <button type="button" data-action="editEffect" title="Edit">
+          <i class="fas fa-pencil"></i>
+        </button>
+        <button type="button" data-action="deleteEffect" title="Delete">
+          <i class="fas fa-trash"></i>
+        </button>
+      </span>
+    </div>
+    {{/each}}
+  </div>
+  {{/if}}
+  {{/if}}
+
+  {{!-- ── Scene Overrides Tab ── --}}
+  {{#if (eq activeTab 'scene')}}
+  <div class="dce-manager-toolbar">
+    <p class="dce-hint">
+      <i class="fas fa-circle-info"></i>
+      Force-enable or force-disable effects for <strong>{{sceneName}}</strong>, overriding global enabled state.
+    </p>
+    <button type="button" data-action="clearOverrides" class="dce-btn-secondary">
+      <i class="fas fa-rotate-left"></i> Clear All Overrides
+    </button>
+  </div>
+
+    <div class="dce-manager-warnings">
+    <p class="dce-warning"><i class="fas fa-triangle-exclamation"></i>
+      <strong>Evasion</strong> and <strong>Damage Threshold</strong> effects should be applied to armor items where possible.
+      Assigning these to actors directly can cause incorrect stacking or loss of values when armor is unequipped — prefer assigning them to armor.
+    </p>
+  </div>
+
+  {{#if isEmpty}}
+  <div class="dce-empty-state">
+    <i class="fas fa-map fa-3x"></i>
+    <p>No effects to override.</p>
+  </div>
+  {{else}}
+  <div class="dce-list">
+    <div class="dce-list-header">
+      <span class="dce-col-name">Effect</span>
+      <span class="dce-col-condition">Condition</span>
+      <span class="dce-col-effect">Effect</span>
+      <span class="dce-col-override">Scene Override</span>
+    </div>
+    {{#each effects}}
+    <div class="dce-override-row {{#unless effectiveEnabled}}dce-row-disabled{{/unless}}" data-effect-id="{{id}}">
+      <span class="dce-col-name">
+        <i class="fas {{beneficialIcon}}"></i> {{name}}
+      </span>
+      <span class="dce-col-condition dce-muted">{{conditionSummary}}</span>
+      <span class="dce-col-effect dce-muted">{{effectSummary}}</span>
+      <span class="dce-col-override">
+        <button type="button" data-action="overrideEnable"
+                class="dce-override-btn {{#if overrideEnabled}}active-override-on{{/if}}"
+                title="Force Enable (Global)">
+          <i class="fas fa-circle-check"></i> On
+        </button>
+        <button type="button" data-action="overrideDisable"
+                class="dce-override-btn {{#if overrideDisabled}}active-override-off{{/if}}"
+                title="Force Disable (Global)">
+          <i class="fas fa-circle-xmark"></i> Off
+        </button>
+        
+        {{!-- NEW PC TOGGLE BUTTON --}}
+        <button type="button" data-action="togglePcGlobal"
+                class="dce-override-btn {{#if overridePC}}active-override-pc{{/if}}"
+                title="Apply to all PCs in this scene">
+          <i class="fas fa-users"></i> PCs
+        </button>
+      </span>
+    </div>
+    {{/each}}
+  </div>
+  {{/if}}
+  {{/if}}
+
+</div>

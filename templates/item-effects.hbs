@@ -1,0 +1,27 @@
+<section class="dce-item-section">
+  <h3 class="dce-item-section-title">
+    <i class="fas fa-wand-magic-sparkles"></i> Conditional Effects
+  </h3>
+
+  {{#if assignedEffects.length}}
+  <div class="dce-assigned-list">
+    {{#each assignedEffects}}
+    <div class="dce-assigned-row" title="{{description}}">
+      <i class="fas {{beneficialIcon}}"></i>
+      <span class="dce-assigned-name">{{name}}</span>
+      <span class="dce-assigned-summary">{{conditionSummary}} → {{effectSummary}}</span>
+      <button type="button" class="dce-remove-effect" data-effect-id="{{id}}" title="Remove">
+        <i class="fas fa-times"></i>
+      </button>
+    </div>
+    {{/each}}
+  </div>
+  {{/if}}
+
+  <div class="dce-drop-zone">
+    <i class="fas fa-arrow-down-to-bracket"></i>
+    Drop an effect here from the
+    <strong>Conditional Effects Manager</strong>
+    (Settings → Open Manager)
+  </div>
+</section>

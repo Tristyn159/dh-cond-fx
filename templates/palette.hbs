@@ -1,0 +1,42 @@
+<div class="dce-palette-wrap">
+
+  {{#if isEmpty}}
+  <div class="dce-empty-state">
+    <i class="fas fa-wand-magic-sparkles fa-3x"></i>
+    <p>No conditional effects defined yet.</p>
+    <p>Open the <strong>Manager</strong> to create some.</p>
+  </div>
+  {{else}}
+  <p class="dce-palette-hint">
+    <i class="fas fa-circle-info"></i>
+    Drag an effect onto an item's edit sheet to assign it.
+  </p>
+
+  <div class="dce-palette-list">
+    {{#each effects}}
+    <div class="dce-palette-row {{#unless enabled}}dce-row-disabled{{/unless}}"
+         data-effect-id="{{id}}"
+         draggable="true"
+         title="{{#if description}}{{description}} — {{/if}}{{conditionSummary}} → {{effectSummary}}">
+
+      <div class="dce-palette-icon">
+        <i class="fas {{beneficialIcon}}"></i>
+      </div>
+
+      <div class="dce-palette-info">
+        <span class="dce-palette-name">{{name}}</span>
+        <span class="dce-palette-detail">
+          <span class="dce-badge">{{typeLabel}}</span>
+          <span class="dce-muted">{{conditionSummary}} → {{effectSummary}}</span>
+        </span>
+      </div>
+
+      <div class="dce-palette-drag-hint">
+        <i class="fas fa-grip-vertical"></i>
+      </div>
+    </div>
+    {{/each}}
+  </div>
+  {{/if}}
+
+</div>
