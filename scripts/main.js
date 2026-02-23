@@ -3,7 +3,7 @@
  */
 
 import {
-    MODULE_ID, FLAG_ASSIGNED, FLAG_ACTOR, APPLICABLE_ITEM_TYPES, ADV_MODE,
+    MODULE_ID, FLAG_ASSIGNED, FLAG_ACTOR, FLAG_PC_TOGGLES, APPLICABLE_ITEM_TYPES, ADV_MODE,
     getAllEffects, STATUSES, ATTRIBUTES, DAMAGE_TYPES, INCOMING_DAMAGE_TYPES,
     registerSettings, summarizeCondition, summarizeEffect,
     ConditionalEffectsManager, isEffectActive,
@@ -25,46 +25,8 @@ function _wrapActorPrepareDerivedData() {
     const original = Actor.prototype.prepareDerivedData;
     Actor.prototype.prepareDerivedData = function (...args) {
         original.apply(this, args);
-        _applyEvasionBonus(this);
         _applyThresholdBonus(this);
     };
-}
-
-function _applyEvasionBonus(actor) {
-    if (!actor?.system) return;
-    if (!('evasion' in actor.system)) return;
-    if (!game.settings) return;
-
-    const effects = _getActorConditionalEffects(actor);
-    let totalBonus = 0;
-    const appliedEffects = [];
-
-    for (const effect of effects) {
-        if (!effect.beneficial || effect.effect.type !== 'defense_bonus') continue;
-        // Evaluate condition with only self available (no roll/target context at prep time)
-        if (!_evaluateCondition(effect.condition, { self: actor, target: null, action: null })) continue;
-        const bonus = Number(effect.effect.defenseBonus ?? 0);
-        if (!bonus) continue;
-        totalBonus += bonus;
-        appliedEffects.push(effect.name);
-    }
-
-    // Ensure we don't double-apply across multiple prepareDerivedData runs.
-    try {
-        actor._dceLastApplied = actor._dceLastApplied || { evasion: 0, major: 0, severe: 0 };
-        const prev = Number(actor._dceLastApplied.evasion || 0);
-        const current = Number(actor.system.evasion || 0);
-        // The system has just reset evasion to its base, so don't try to calculate base from current - prev.
-        const base = totalBonus === 0 && prev > 0 ? current : (current - prev);
-        const newVal = base + totalBonus;
-        
-        console.log(`${MODULE_ID} | Evasion calc for ${actor.name}: prev=${prev}, current=${current}, base=${base}, totalBonus=${totalBonus}, newVal=${newVal}, effects=[${appliedEffects.join(',')}]`);
-        
-        actor.system.evasion = newVal;
-        actor._dceLastApplied.evasion = totalBonus;
-    } catch (err) {
-        console.error(`${MODULE_ID} | Error applying evasion bonus:`, err);
-    }
 }
 
 
@@ -86,30 +48,21 @@ function _applyThresholdBonus(actor) {
         appliedEffects.push(effect.name);
     }
 
-    if (majorBonus || severeBonus) {
-        try {
-            actor._dceLastApplied = actor._dceLastApplied || { evasion: 0, major: 0, severe: 0 };
-            
-            // Apply major threshold
-            const prevMajor = Number(actor._dceLastApplied.major || 0);
-            const currentMajor = Number(actor.system.damageThresholds.major ?? 0);
-            const baseMajor = majorBonus === 0 && prevMajor > 0 ? currentMajor : (currentMajor - prevMajor);
-            const newMajor = baseMajor + majorBonus;
-            actor.system.damageThresholds.major = newMajor;
-            actor._dceLastApplied.major = majorBonus;
-            console.log(`${MODULE_ID} | Threshold major calc for ${actor.name}: prev=${prevMajor}, current=${currentMajor}, base=${baseMajor}, bonus=${majorBonus}, newVal=${newMajor}`);
-            
-            // Apply severe threshold
-            const prevSevere = Number(actor._dceLastApplied.severe || 0);
-            const currentSevere = Number(actor.system.damageThresholds.severe ?? 0);
-            const baseSevere = severeBonus === 0 && prevSevere > 0 ? currentSevere : (currentSevere - prevSevere);
-            const newSevere = baseSevere + severeBonus;
-            actor.system.damageThresholds.severe = newSevere;
-            actor._dceLastApplied.severe = severeBonus;
-            console.log(`${MODULE_ID} | Threshold severe calc for ${actor.name}: prev=${prevSevere}, current=${currentSevere}, base=${baseSevere}, bonus=${severeBonus}, newVal=${newSevere}, effects=[${appliedEffects.join(',')}]`);
-        } catch (err) {
-            console.error(`${MODULE_ID} | Error applying threshold bonus:`, err);
+    if (!majorBonus && !severeBonus) return;
+
+    // The system's prepareBaseData() resets damageThresholds to their computed base before
+    // prepareDerivedData() (and therefore this function) runs. So the thresholds already
+    // hold the correct base — we just add our bonuses on top. No tracking needed.
+    try {
+        if (majorBonus) {
+            actor.system.damageThresholds.major = Number(actor.system.damageThresholds.major ?? 0) + majorBonus;
         }
+        if (severeBonus) {
+            actor.system.damageThresholds.severe = Number(actor.system.damageThresholds.severe ?? 0) + severeBonus;
+        }
+        console.log(`${MODULE_ID} | Threshold bonus major=+${majorBonus} severe=+${severeBonus} for ${actor.name} (now major=${actor.system.damageThresholds.major}, severe=${actor.system.damageThresholds.severe}), effects=[${appliedEffects.join(',')}]`);
+    } catch (err) {
+        console.error(`${MODULE_ID} | Error applying threshold bonus:`, err);
     }
 }
 
@@ -124,8 +77,13 @@ Hooks.once('ready', async () => {
     _registerItemSheetHooks();
     _registerActorSheetHooks();
     _registerRollHooks();
-    _registerItemUpdateHooks();
+    _registerEvasionSyncHooks();
     _registerDaggerheartMenuHook();
+
+    // Sync evasion AEs for all currently-loaded actors on world load.
+    for (const actor of game.actors) {
+        _syncEvasionActiveEffects(actor);
+    }
 
     const dhMenu = ui.daggerheartMenu ?? Object.values(ui).find(a => a?.constructor?.tabName === 'daggerheartMenu');
     if (dhMenu?.element) _injectDaggerheartMenuSection(dhMenu, dhMenu.element);
@@ -162,17 +120,157 @@ function _getActorConditionalEffects(actor) {
     return globalEffects.filter(e => assignedIds.has(e.id));
 }
 
-// Ensure actor derived data refreshes when an owned item's equip/vault state changes
-function _registerItemUpdateHooks() {
-    Hooks.on('updateItem', (item, diff, options, userId) => {
-        try {
-            const parent = item?.parent ?? null;
-            if (!(parent instanceof Actor)) return;
-            const equippedChanged = !!foundry.utils.getProperty(diff, 'system.equipped');
-            const inVaultChanged  = !!foundry.utils.getProperty(diff, 'system.inVault');
-            if (equippedChanged || inVaultChanged) parent.prepareDerivedData();
-        } catch (err) {
-            console.error(`${MODULE_ID} | Error handling updateItem hook:`, err);
+// ─── Evasion Active Effect Sync ──────────────────────────────────────────────
+//
+// For defense_bonus effects, we create real Foundry ActiveEffects on the actor
+// (with changes: [{ key:'system.evasion', mode: CONST.ACTIVE_EFFECT_MODES.ADD, value: N }])
+// so the system's own AE pipeline handles the math cleanly during prepareData().
+// We identify our AEs by flag: flags.[MODULE_ID].sourceEffectId = <condEffectId>.
+//
+// A per-actor debounce prevents duplicate async operations when multiple hooks
+// fire in quick succession (e.g. equip triggers updateItem + updateActor).
+
+const _evasionSyncPending = new Set();
+
+async function _syncEvasionActiveEffects(actor) {
+    if (!actor?.id || !actor.isOwner) return;
+    if (!('evasion' in (actor.system ?? {}))) return;
+
+    // Debounce: if a sync is already queued for this actor, skip.
+    if (_evasionSyncPending.has(actor.id)) return;
+    _evasionSyncPending.add(actor.id);
+
+    // Defer to next microtask so rapid successive hook calls collapse into one.
+    await Promise.resolve();
+    _evasionSyncPending.delete(actor.id);
+
+    try {
+        const condEffects = _getActorConditionalEffects(actor);
+
+        // Build the set of condEffect IDs that should have an AE right now.
+        const desired = new Map(); // condEffectId -> bonus value
+        for (const ce of condEffects) {
+            if (!ce.beneficial || ce.effect.type !== 'defense_bonus') continue;
+            if (!_evaluateCondition(ce.condition, { self: actor, target: null, action: null })) continue;
+            const bonus = Number(ce.effect.defenseBonus ?? 0);
+            if (!bonus) continue;
+            desired.set(ce.id, { bonus, name: ce.name });
+        }
+
+        // Find existing dce evasion AEs on this actor.
+        const existing = actor.effects.filter(ae =>
+            ae.getFlag(MODULE_ID, 'sourceEffectId') !== undefined &&
+            ae.getFlag(MODULE_ID, 'evasionAE') === true
+        );
+
+        const toDelete = [];
+        const toCreate = new Map(desired); // will prune as we find matches
+
+        for (const ae of existing) {
+            const sourceId = ae.getFlag(MODULE_ID, 'sourceEffectId');
+            if (desired.has(sourceId)) {
+                // AE exists and should exist — check value is still correct.
+                const expectedBonus = desired.get(sourceId).bonus;
+                const currentBonus = Number(ae.changes?.[0]?.value ?? 0);
+                if (currentBonus !== expectedBonus) {
+                    // Value changed — delete and recreate.
+                    toDelete.push(ae.id);
+                } else {
+                    // Already correct — don't recreate.
+                    toCreate.delete(sourceId);
+                }
+            } else {
+                // AE exists but condition no longer met — delete.
+                toDelete.push(ae.id);
+            }
+        }
+
+        if (toDelete.length) {
+            await actor.deleteEmbeddedDocuments('ActiveEffect', toDelete);
+            console.log(`${MODULE_ID} | Deleted ${toDelete.length} evasion AE(s) from ${actor.name}`);
+        }
+
+        if (toCreate.size) {
+            const aeData = [];
+            for (const [sourceId, { bonus, name }] of toCreate) {
+                aeData.push({
+                    name: `${name} (Evasion)`,
+                    img: 'icons/magic/defensive/shield-barrier-blue.webp',
+                    transfer: false,
+                    flags: {
+                        [MODULE_ID]: {
+                            sourceEffectId: sourceId,
+                            evasionAE: true,
+                        },
+                    },
+                    changes: [{
+                        key:   'system.evasion',
+                        mode:  CONST.ACTIVE_EFFECT_MODES.ADD,
+                        value: String(bonus),
+                    }],
+                });
+            }
+            await actor.createEmbeddedDocuments('ActiveEffect', aeData);
+            console.log(`${MODULE_ID} | Created ${aeData.length} evasion AE(s) on ${actor.name}`);
+        }
+    } catch (err) {
+        console.error(`${MODULE_ID} | Error syncing evasion AEs for ${actor.name}:`, err);
+    }
+}
+
+function _registerEvasionSyncHooks() {
+    // Item equip/unequip or vault state change — may change which items are "active"
+    // and therefore which condEffects are in scope.
+    Hooks.on('updateItem', (item, diff) => {
+        const parent = item?.parent;
+        if (!(parent instanceof Actor)) return;
+        const equippedChanged = foundry.utils.getProperty(diff, 'system.equipped') !== undefined;
+        const inVaultChanged  = foundry.utils.getProperty(diff, 'system.inVault')  !== undefined;
+        if (equippedChanged || inVaultChanged) _syncEvasionActiveEffects(parent);
+    });
+
+    // Actor update — resource/attribute conditions (hope, stress, HP, etc.) may flip.
+    Hooks.on('updateActor', (actor, diff) => {
+        if (!foundry.utils.getProperty(diff, 'system')) return;
+        _syncEvasionActiveEffects(actor);
+    });
+
+    // Status conditions applied/removed — status-type conditions may flip.
+    Hooks.on('createActiveEffect', (ae) => {
+        const actor = ae.parent;
+        if (!(actor instanceof Actor)) return;
+        // Don't re-trigger on our own AE creations (no sourceEffectId guard needed
+        // because _syncEvasionActiveEffects debounces and the AE won't affect desired).
+        if (ae.getFlag(MODULE_ID, 'evasionAE')) return;
+        _syncEvasionActiveEffects(actor);
+    });
+    Hooks.on('deleteActiveEffect', (ae) => {
+        const actor = ae.parent;
+        if (!(actor instanceof Actor)) return;
+        if (ae.getFlag(MODULE_ID, 'evasionAE')) return;
+        _syncEvasionActiveEffects(actor);
+    });
+
+    // Flag changes on actor (condEffect assigned/removed at actor level).
+    Hooks.on('updateActor', (actor, diff) => {
+        if (!foundry.utils.getProperty(diff, `flags.${MODULE_ID}`)) return;
+        _syncEvasionActiveEffects(actor);
+    });
+
+    // Flag changes on items (condEffect assigned/removed from an item).
+    Hooks.on('updateItem', (item, diff) => {
+        const parent = item?.parent;
+        if (!(parent instanceof Actor)) return;
+        if (!foundry.utils.getProperty(diff, `flags.${MODULE_ID}`)) return;
+        _syncEvasionActiveEffects(parent);
+    });
+
+    // Scene PC toggle changed — sync all character actors in the world.
+    Hooks.on('updateScene', (scene, diff) => {
+        if (!scene.isActive) return;
+        if (foundry.utils.getProperty(diff, `flags.${MODULE_ID}.${FLAG_PC_TOGGLES}`) === undefined) return;
+        for (const actor of game.actors) {
+            if (actor.type === 'character') _syncEvasionActiveEffects(actor);
         }
     });
 }
@@ -628,8 +726,8 @@ function _applyRollEffect(effect, config) {
 // ── Fate/Reaction roll — no-op ────────────────────────────────────────────────
 
 function _onPreRollFate(_config, _message) {
-    // defense_bonus (evasion) is applied as a passive stat modifier in
-    // _applyEvasionBonus(), which runs during Actor.prepareDerivedData().
+    // defense_bonus (evasion) is handled by a real ActiveEffect on the actor
+    // (created/deleted by _syncEvasionActiveEffects). Nothing to do here.
 }
 
 // ── Damage bonus ──────────────────────────────────────────────────────────────
