@@ -229,6 +229,22 @@
         </div>
       </div>
 
+      {{!-- Apply status while condition met --}}
+      <div class="dce-field-apply-status {{#unless showApplyStatus}}dce-hidden{{/unless}}">
+        <div class="dce-form-row">
+          <label>Status to Apply
+            <span class="dce-hint-icon" title="This status is applied to the subject while the condition is met, and removed (deleted) when the condition is no longer met.">
+              <i class="fas fa-circle-question"></i>
+            </span>
+          </label>
+          <select name="effect.applyStatus">
+            {{#each statuses}}
+            <option value="{{id}}" {{#if (eq ../effect.effect.applyStatus id)}}selected{{/if}}>{{label}}</option>
+            {{/each}}
+          </select>
+        </div>
+      </div>
+
       {{!-- Roll bonus --}}
       <div class="dce-field-roll-bonus {{#unless showRollBonus}}dce-hidden{{/unless}}">
         <div class="dce-form-row">

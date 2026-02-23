@@ -41,7 +41,7 @@
   ],
   "flags": {},
 
-  "url": "https://github.com/Tristyn159/dh-cond-fx/tree/testing",
-  "manifest": "https://raw.githubusercontent.com/Tristyn159/dh-cond-fx/testing/module.json",
-  "download": "https://codeload.github.com/Tristyn159/dh-cond-fx/zip/testing"  
+  "url": "https://github.com/Tristyn159/dh-cond-fx/",
+  "manifest": "https://raw.githubusercontent.com/Tristyn159/dh-cond-fx/main/module.json",
+  "download": "https://codeload.github.com/Tristyn159/dh-cond-fx/zip/main"  
 }

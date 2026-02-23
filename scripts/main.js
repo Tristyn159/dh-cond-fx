@@ -78,11 +78,13 @@ Hooks.once('ready', async () => {
     _registerActorSheetHooks();
     _registerRollHooks();
     _registerEvasionSyncHooks();
+    _registerStatusSyncHooks();
     _registerDaggerheartMenuHook();
 
-    // Sync evasion AEs for all currently-loaded actors on world load.
+    // Sync evasion AEs and status AEs for all currently-loaded actors on world load.
     for (const actor of game.actors) {
         _syncEvasionActiveEffects(actor);
+        _syncStatusActiveEffects(actor);
     }
 
     const dhMenu = ui.daggerheartMenu ?? Object.values(ui).find(a => a?.constructor?.tabName === 'daggerheartMenu');
@@ -216,6 +218,166 @@ async function _syncEvasionActiveEffects(actor) {
     } catch (err) {
         console.error(`${MODULE_ID} | Error syncing evasion AEs for ${actor.name}:`, err);
     }
+}
+
+// ─── Status Active Effect Sync ───────────────────────────────────────────────
+//
+// For apply_status effects, we create real Foundry status ActiveEffects on the actor
+// so the system's own status pipeline handles them cleanly.
+// We identify our AEs by flag: flags.[MODULE_ID].sourceEffectId + statusAE: true.
+// When the condition is no longer met, the AE is DELETED (not disabled).
+
+const _statusSyncPending = new Set();
+
+async function _syncStatusActiveEffects(actor) {
+    if (!actor?.id || !actor.isOwner) return;
+
+    // Debounce
+    if (_statusSyncPending.has(actor.id)) return;
+    _statusSyncPending.add(actor.id);
+    await Promise.resolve();
+    _statusSyncPending.delete(actor.id);
+
+    try {
+        const condEffects = _getActorConditionalEffects(actor);
+
+        // Build the set of apply_status condEffects that should be active right now.
+        // key = condEffectId, value = { statusId, name }
+        const desired = new Map();
+        for (const ce of condEffects) {
+            if (ce.effect.type !== 'apply_status') continue;
+            if (!_evaluateCondition(ce.condition, { self: actor, target: null, action: null })) continue;
+            const statusId = ce.effect.applyStatus;
+            if (!statusId) continue;
+            desired.set(ce.id, { statusId, name: ce.name });
+        }
+
+        // Find existing dce status AEs on this actor.
+        const existing = actor.effects.filter(ae =>
+            ae.getFlag(MODULE_ID, 'sourceEffectId') !== undefined &&
+            ae.getFlag(MODULE_ID, 'statusAE') === true
+        );
+
+        const toDelete = [];
+        const toCreate = new Map(desired);
+
+        for (const ae of existing) {
+            const sourceId = ae.getFlag(MODULE_ID, 'sourceEffectId');
+            if (desired.has(sourceId)) {
+                // AE exists and should exist — check the status ID is still correct.
+                const expectedStatusId = desired.get(sourceId).statusId;
+                const currentStatusId = ae.statuses?.first() ?? ae.getFlag(MODULE_ID, 'statusId');
+                if (currentStatusId !== expectedStatusId) {
+                    // Status changed — delete and recreate.
+                    toDelete.push(ae.id);
+                } else {
+                    // Already correct — don't recreate.
+                    toCreate.delete(sourceId);
+                }
+            } else {
+                // AE exists but condition no longer met — delete.
+                toDelete.push(ae.id);
+            }
+        }
+
+        if (toDelete.length) {
+            await actor.deleteEmbeddedDocuments('ActiveEffect', toDelete);
+            console.log(`${MODULE_ID} | Deleted ${toDelete.length} status AE(s) from ${actor.name}`);
+        }
+
+        if (toCreate.size) {
+            const aeData = [];
+            for (const [sourceId, { statusId, name }] of toCreate) {
+                // Build a status AE the same way the system does via toggleStatusEffect.
+                // We use fromStatusEffect to get the correct icon/name/statuses data,
+                // then merge our tracking flags in.
+                let statusAEData;
+                try {
+                    const proto = await ActiveEffect.fromStatusEffect(statusId);
+                    statusAEData = proto.toObject();
+                } catch (err) {
+                    // Fallback if fromStatusEffect fails — build a minimal status AE manually.
+                    console.warn(`${MODULE_ID} | fromStatusEffect failed for "${statusId}", using fallback`, err);
+                    statusAEData = {
+                        name: statusId,
+                        statuses: [statusId],
+                        img: 'icons/magic/life/heart-cross-blue.webp',
+                    };
+                }
+
+                // Override name to include our effect name for clarity, and inject flags.
+                statusAEData.name = `${name} (${statusAEData.name ?? statusId})`;
+                statusAEData.transfer = false;
+                statusAEData.flags = foundry.utils.mergeObject(statusAEData.flags ?? {}, {
+                    [MODULE_ID]: {
+                        sourceEffectId: sourceId,
+                        statusAE: true,
+                        statusId: statusId,
+                    },
+                });
+
+                aeData.push(statusAEData);
+            }
+            await actor.createEmbeddedDocuments('ActiveEffect', aeData);
+            console.log(`${MODULE_ID} | Created ${aeData.length} status AE(s) on ${actor.name}`);
+        }
+    } catch (err) {
+        console.error(`${MODULE_ID} | Error syncing status AEs for ${actor.name}:`, err);
+    }
+}
+
+function _registerStatusSyncHooks() {
+    // Item equip/unequip or vault state change
+    Hooks.on('updateItem', (item, diff) => {
+        const parent = item?.parent;
+        if (!(parent instanceof Actor)) return;
+        const equippedChanged = foundry.utils.getProperty(diff, 'system.equipped') !== undefined;
+        const inVaultChanged  = foundry.utils.getProperty(diff, 'system.inVault')  !== undefined;
+        if (equippedChanged || inVaultChanged) _syncStatusActiveEffects(parent);
+    });
+
+    // Actor update — attribute conditions may flip.
+    Hooks.on('updateActor', (actor, diff) => {
+        if (!foundry.utils.getProperty(diff, 'system')) return;
+        _syncStatusActiveEffects(actor);
+    });
+
+    // Status conditions applied/removed — status-type conditions may flip.
+    Hooks.on('createActiveEffect', (ae) => {
+        const actor = ae.parent;
+        if (!(actor instanceof Actor)) return;
+        if (ae.getFlag(MODULE_ID, 'statusAE')) return;
+        _syncStatusActiveEffects(actor);
+    });
+    Hooks.on('deleteActiveEffect', (ae) => {
+        const actor = ae.parent;
+        if (!(actor instanceof Actor)) return;
+        if (ae.getFlag(MODULE_ID, 'statusAE')) return;
+        _syncStatusActiveEffects(actor);
+    });
+
+    // Flag changes on actor
+    Hooks.on('updateActor', (actor, diff) => {
+        if (!foundry.utils.getProperty(diff, `flags.${MODULE_ID}`)) return;
+        _syncStatusActiveEffects(actor);
+    });
+
+    // Flag changes on items
+    Hooks.on('updateItem', (item, diff) => {
+        const parent = item?.parent;
+        if (!(parent instanceof Actor)) return;
+        if (!foundry.utils.getProperty(diff, `flags.${MODULE_ID}`)) return;
+        _syncStatusActiveEffects(parent);
+    });
+
+    // Scene PC toggle changed
+    Hooks.on('updateScene', (scene, diff) => {
+        if (!scene.isActive) return;
+        if (foundry.utils.getProperty(diff, `flags.${MODULE_ID}.${FLAG_PC_TOGGLES}`) === undefined) return;
+        for (const actor of game.actors) {
+            if (actor.type === 'character') _syncStatusActiveEffects(actor);
+        }
+    });
 }
 
 function _registerEvasionSyncHooks() {

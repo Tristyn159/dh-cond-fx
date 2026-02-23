@@ -15,18 +15,45 @@ export const APPLICABLE_ITEM_TYPES = ['weapon', 'armor', 'domainCard', 'feature'
 export const ADV_MODE = { NORMAL: 0, ADVANTAGE: 1, DISADVANTAGE: -1 };
 
 export const STATUSES = [
-    { id: 'vulnerable',  label: 'Vulnerable'  },
-    { id: 'hidden',      label: 'Hidden'       },
-    { id: 'restrained',  label: 'Restrained'   },
-    { id: 'deathMove',   label: 'Death Move'   },
-    { id: 'defeated',    label: 'Defeated'     },
-    { id: 'unconscious', label: 'Unconscious'  },
-    { id: 'dead',        label: 'Dead'         },
-    { id: 'blessed',     label: 'Blessed'      },
-    { id: 'cursed',      label: 'Cursed'       },
-    { id: 'poisoned',    label: 'Poisoned'     },
-    { id: 'prone',       label: 'Prone'        },
-    { id: 'stunned',     label: 'Stunned'      },
+    // ── Core conditions (verified in system source) ──────────────────────────
+    { id: 'dead',         label: 'Dead'          },
+    { id: 'deathMove',    label: 'Death Move'    },
+    { id: 'defeated',     label: 'Defeated'      },
+    { id: 'hidden',       label: 'Hidden'        },
+    { id: 'restrained',   label: 'Restrained'    },
+    { id: 'unconscious',  label: 'Unconscious'   },
+    { id: 'vulnerable',   label: 'Vulnerable'    },
+    // ── Status conditions (from AE dropdown) ─────────────────────────────────
+    { id: 'asleep',       label: 'Asleep'        },
+    { id: 'bleeding',     label: 'Bleeding'      },
+    { id: 'blessed',      label: 'Blessed'       },
+    { id: 'blind',        label: 'Blind'         },
+    { id: 'burning',      label: 'Burning'       },
+    { id: 'burrowing',    label: 'Burrowing'     },
+    { id: 'corroding',    label: 'Corroding'     },
+    { id: 'cursed',       label: 'Cursed'        },
+    { id: 'deaf',         label: 'Deaf'          },
+    { id: 'degenerating', label: 'Degenerating'  },
+    { id: 'diseased',     label: 'Diseased'      },
+    { id: 'empowered',    label: 'Empowered'     },
+    { id: 'fireShield',   label: 'Fire Shield'   },
+    { id: 'flying',       label: 'Flying'        },
+    { id: 'frightened',   label: 'Frightened'    },
+    { id: 'frozen',       label: 'Frozen'        },
+    { id: 'holyShield',   label: 'Holy Shield'   },
+    { id: 'hovering',     label: 'Hovering'      },
+    { id: 'iceShield',    label: 'Ice Shield'    },
+    { id: 'invisible',    label: 'Invisible'     },
+    { id: 'magusShield',  label: 'Magus Shield'  },
+    { id: 'marked',       label: 'Marked'        },
+    { id: 'paralyzed',    label: 'Paralyzed'     },
+    { id: 'poisoned',     label: 'Poisoned'      },
+    { id: 'prone',        label: 'Prone'         },
+    { id: 'regenerating', label: 'Regenerating'  },
+    { id: 'shocked',      label: 'Shocked'       },
+    { id: 'silenced',     label: 'Silenced'      },
+    { id: 'stunned',      label: 'Stunned'       },
+    { id: 'weakened',     label: 'Weakened'      },
 ];
 
 export const ATTRIBUTES = [
@@ -71,6 +98,7 @@ export const EFFECT_TYPES = [
     { id: 'damage_reduction',  label: 'Damage Threshold Bonus (major / severe)'      },
     { id: 'defense_bonus',     label: 'Defense / Evasion Bonus (flat)'               },
     { id: 'status_on_hit',     label: 'Apply Status to Target on Hit'                },
+    { id: 'apply_status',      label: 'Apply Status to Subject (while condition met)'},
     { id: 'roll_bonus',        label: 'Roll Bonus (flat)'                            },
     { id: 'advantage',         label: 'Grant Advantage'                              },
     { id: 'disadvantage',      label: 'Force Disadvantage'                           },
@@ -131,6 +159,7 @@ export function defaultEffect() {
             thresholdSevere:   0,
             defenseBonus:      0,
             statusToApply:     'vulnerable',
+            applyStatus:       'vulnerable',
             damageMultiplier:  2,
         },
     };
@@ -260,6 +289,10 @@ export function summarizeEffect(effect) {
     if (effect.type === 'status_on_hit') {
         const s = STATUSES.find(s => s.id === effect.statusToApply)?.label ?? effect.statusToApply;
         return `Apply: ${s}`;
+    }
+    if (effect.type === 'apply_status') {
+        const s = STATUSES.find(s => s.id === effect.applyStatus)?.label ?? effect.applyStatus;
+        return `Status: ${s} (while active)`;
     }
     if (effect.type === 'roll_bonus')    return `Roll ${effect.rollBonus >= 0 ? '+' : ''}${effect.rollBonus}`;
     if (effect.type === 'advantage')    return 'Advantage';
@@ -429,6 +462,7 @@ export class ConditionalEffectConfig extends HandlebarsApplicationMixin(Applicat
             showDamageReduction:  eff.type  === 'damage_reduction',
             showDefenseBonus:     eff.type  === 'defense_bonus',
             showStatusOnHit:      eff.type  === 'status_on_hit',
+            showApplyStatus:      eff.type  === 'apply_status',
             showRollBonus:        eff.type  === 'roll_bonus',
             enabledStr:          String(effect.enabled),
             beneficialStr:       String(effect.beneficial),
@@ -485,6 +519,7 @@ export class ConditionalEffectConfig extends HandlebarsApplicationMixin(Applicat
         this._toggle('.dce-field-damage-reduction',    effType  === 'damage_reduction');
         this._toggle('.dce-field-defense-bonus',       effType  === 'defense_bonus');
         this._toggle('.dce-field-status-on-hit',       effType  === 'status_on_hit');
+        this._toggle('.dce-field-apply-status',        effType  === 'apply_status');
         this._toggle('.dce-field-roll-bonus',          effType  === 'roll_bonus');
     }
 
