@@ -22,7 +22,7 @@ https://raw.githubusercontent.com/Tristyn159/dh-cond-fx/main/module.json
 - Drag-and-drop effects onto items (weapons, armor, domain cards, features) or directly onto actor sheets to assign them
 - Full CRUD with real-time UI updates
 <p align="center">
-  <img width="700" src="docs/drag-and-drop.webp">
+  <img width="700" src="docs/drag-and-drops.webp">
 </p>
 
 ### Effect Palette
