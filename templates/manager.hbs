@@ -7,6 +7,9 @@
     <button class="dce-tab-btn {{#if (eq activeTab 'scene')}}active{{/if}}" data-tab="scene">
       <i class="fas fa-map"></i> Scene Overrides
     </button>
+    <button class="dce-tab-btn {{#if (eq activeTab 'presets')}}active{{/if}}" data-tab="presets">
+      <i class="fas fa-book-sparkles"></i> Presets
+    </button>
   </div>
 
   {{!-- ── Effects Tab ── --}}
@@ -115,28 +118,58 @@
       <span class="dce-col-condition dce-muted">{{conditionSummary}}</span>
       <span class="dce-col-effect dce-muted">{{effectSummary}}</span>
       <span class="dce-col-override">
-        <button type="button" data-action="overrideEnable"
-                class="dce-override-btn {{#if overrideEnabled}}active-override-on{{/if}}"
-                title="Force Enable (Global)">
-          <i class="fas fa-circle-check"></i> On
-        </button>
         <button type="button" data-action="overrideDisable"
-                class="dce-override-btn {{#if overrideDisabled}}active-override-off{{/if}}"
-                title="Force Disable (Global)">
-          <i class="fas fa-circle-xmark"></i> Off
+                class="dce-override-btn {{#if overrideOff}}active-override-off{{/if}}"
+                title="Force-disable this effect for everyone in this scene">
+          <i class="fas fa-ban"></i> Off
         </button>
-        
-        {{!-- NEW PC TOGGLE BUTTON --}}
         <button type="button" data-action="togglePcGlobal"
                 class="dce-override-btn {{#if overridePC}}active-override-pc{{/if}}"
-                title="Apply to all PCs in this scene">
+                title="Apply to all PCs in this scene (regardless of manual assignment)">
           <i class="fas fa-users"></i> PCs
+        </button>
+        <button type="button" data-action="toggleNpcGlobal"
+                class="dce-override-btn {{#if overrideNPC}}active-override-npc{{/if}}"
+                title="Apply to all adversaries in this scene (regardless of manual assignment)">
+          <i class="fas fa-skull"></i> Foes
         </button>
       </span>
     </div>
     {{/each}}
   </div>
   {{/if}}
+  {{/if}}
+
+  {{!-- ── Presets Tab ── --}}
+  {{#if (eq activeTab 'presets')}}
+  <div class="dce-manager-toolbar">
+    <p class="dce-hint">
+      <i class="fas fa-circle-info"></i>
+      Click a preset to create a new effect from it. You can customize it after creation.
+    </p>
+  </div>
+
+  <div class="dce-presets-list">
+    {{#each presetCategories}}
+    <div class="dce-preset-category">
+      <h3 class="dce-preset-category-title"><i class="fas fa-folder-open"></i> {{category}}</h3>
+      <div class="dce-preset-grid">
+        {{#each presets}}
+        <div class="dce-preset-card" data-preset-category="{{@../index}}" data-preset-index="{{@index}}" title="{{description}}">
+          <div class="dce-preset-icon"><i class="fas {{icon}}"></i></div>
+          <div class="dce-preset-info">
+            <span class="dce-preset-name">{{name}}</span>
+            <span class="dce-preset-desc">{{description}}</span>
+          </div>
+          <button type="button" class="dce-preset-add" data-action="createFromPreset" title="Create effect from this preset">
+            <i class="fas fa-plus"></i>
+          </button>
+        </div>
+        {{/each}}
+      </div>
+    </div>
+    {{/each}}
+  </div>
   {{/if}}
 
 </div>

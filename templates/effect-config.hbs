@@ -94,13 +94,47 @@
         </div>
       </div>
 
-      <div class="dce-form-row dce-field-range {{#unless showRange}}dce-hidden{{/unless}}">
-        <label>Range</label>
-        <select name="condition.range">
-          {{#each rangeTypes}}
-          <option value="{{id}}" {{#if (eq ../effect.condition.range id)}}selected{{/if}}>{{label}}</option>
-          {{/each}}
-        </select>
+      <div class="dce-field-range {{#unless showRange}}dce-hidden{{/unless}}">
+        <div class="dce-form-row">
+          <label>Range Mode
+            <span class="dce-hint-icon" title="Within = at or closer. At = exactly that range band. Further Than = beyond that range.">
+              <i class="fas fa-circle-question"></i>
+            </span>
+          </label>
+          <select name="condition.rangeMode">
+            {{#each rangeModes}}
+            <option value="{{id}}" {{#if (eq ../effect.condition.rangeMode id)}}selected{{/if}}>{{label}}</option>
+            {{/each}}
+          </select>
+        </div>
+        <div class="dce-form-row">
+          <label>Range Band</label>
+          <select name="condition.range">
+            {{#each rangeTypes}}
+            <option value="{{id}}" {{#if (eq ../effect.condition.range id)}}selected{{/if}}>{{label}}</option>
+            {{/each}}
+          </select>
+        </div>
+        <div class="dce-form-row">
+          <label>Check Against
+            <span class="dce-hint-icon" title="Target = your current Foundry target(s). Friends/Enemies = tokens by disposition on the scene.">
+              <i class="fas fa-circle-question"></i>
+            </span>
+          </label>
+          <select name="condition.rangeSubject">
+            {{#each rangeSubjects}}
+            <option value="{{id}}" {{#if (eq ../effect.condition.rangeSubject id)}}selected{{/if}}>{{label}}</option>
+            {{/each}}
+          </select>
+        </div>
+        <div class="dce-form-row dce-field-range-count {{#unless showRangeCount}}dce-hidden{{/unless}}">
+          <label>Minimum Count
+            <span class="dce-hint-icon" title="How many tokens of that type must be in range for the condition to be met.">
+              <i class="fas fa-circle-question"></i>
+            </span>
+          </label>
+          <input type="number" name="condition.rangeCount" value="{{effect.condition.rangeCount}}" step="1" min="1" />
+        </div>
       </div>
 
       <div class="dce-form-row dce-field-weapon-slot {{#unless showWeaponSlot}}dce-hidden{{/unless}}">
@@ -125,6 +159,61 @@
         </select>
       </div>
 
+      <div class="dce-form-row dce-field-threshold {{#unless showThreshold}}dce-hidden{{/unless}}">
+        <label>Threshold</label>
+        <select name="condition.threshold">
+          {{#each damageThresholds}}
+          <option value="{{id}}" {{#if (eq ../effect.condition.threshold id)}}selected{{/if}}>{{label}}</option>
+          {{/each}}
+        </select>
+      </div>
+
+    </div>
+  </fieldset>
+
+  <fieldset class="dce-fieldset">
+    <legend>Duration — when does it expire?</legend>
+    <div class="dce-fieldset-inner">
+      <div class="dce-form-row">
+        <label>Duration</label>
+        <select name="duration.mode">
+          {{#each durationModes}}
+          <option value="{{id}}" {{#if (eq ../durationMode id)}}selected{{/if}}>{{label}}</option>
+          {{/each}}
+        </select>
+      </div>
+
+      <div class="dce-form-row dce-field-duration-uses {{#unless showDurationUses}}dce-hidden{{/unless}}">
+        <label>Uses</label>
+        <input type="number" name="duration.uses" value="{{durationUses}}" step="1" min="1" />
+      </div>
+
+      <div class="dce-field-countdown {{#unless showCountdown}}dce-hidden{{/unless}}">
+        <div class="dce-form-row">
+          <label>Countdown Ticks
+            <span class="dce-hint-icon" title="Number of ticks before the effect expires. Each event decrements by 1.">
+              <i class="fas fa-circle-question"></i>
+            </span>
+          </label>
+          <input type="number" name="duration.countdownTicks" value="{{effect.duration.countdownTicks}}" step="1" min="1" />
+        </div>
+        <div class="dce-form-row">
+          <label>Tick On
+            <span class="dce-hint-icon" title="What event decrements the countdown.">
+              <i class="fas fa-circle-question"></i>
+            </span>
+          </label>
+          <select name="duration.countdownTickOn">
+            {{#each countdownTickEvents}}
+            <option value="{{id}}" {{#if (eq ../effect.duration.countdownTickOn id)}}selected{{/if}}>{{label}}</option>
+            {{/each}}
+          </select>
+        </div>
+      </div>
+
+      <p class="dce-help">
+        <em>Note:</em> Duration is consumed when the effect actually applies. For "Next Roll" / "Next Hit", it is only consumed by roll- or damage-related effect types.
+      </p>
     </div>
   </fieldset>
 
@@ -229,6 +318,30 @@
         </div>
       </div>
 
+      {{!-- Proficiency bonus --}}
+      <div class="dce-field-proficiency-bonus {{#unless showProficiencyBonus}}dce-hidden{{/unless}}">
+        <div class="dce-form-row">
+          <label>Proficiency Bonus
+            <span class="dce-hint-icon" title="Added to the actor's Proficiency while the condition is met. Applied via ActiveEffect.">
+              <i class="fas fa-circle-question"></i>
+            </span>
+          </label>
+          <input type="number" name="effect.proficiencyBonus" value="{{effect.effect.proficiencyBonus}}" step="1" />
+        </div>
+      </div>
+
+      {{!-- Stress on hit --}}
+      <div class="dce-field-stress-on-hit {{#unless showStressOnHit}}dce-hidden{{/unless}}">
+        <div class="dce-form-row">
+          <label>Stress Amount
+            <span class="dce-hint-icon" title="The number of Stress to apply to the target when damage is dealt.">
+              <i class="fas fa-circle-question"></i>
+            </span>
+          </label>
+          <input type="number" name="effect.stressAmount" value="{{effect.effect.stressAmount}}" step="1" min="1" />
+        </div>
+      </div>
+
       {{!-- Apply status while condition met --}}
       <div class="dce-field-apply-status {{#unless showApplyStatus}}dce-hidden{{/unless}}">
         <div class="dce-form-row">
@@ -257,6 +370,53 @@
         </div>
       </div>
 
+      {{!-- Roll filters (trait + action type) — shown for roll_bonus, advantage, disadvantage --}}
+      <div class="dce-field-roll-filters {{#unless showRollFilters}}dce-hidden{{/unless}}">
+        <div class="dce-form-row">
+          <label>Trait Filter
+            <span class="dce-hint-icon" title="Only apply to rolls using this trait. 'Any Trait' applies to all rolls.">
+              <i class="fas fa-circle-question"></i>
+            </span>
+          </label>
+          <select name="effect.traitFilter">
+            {{#each traits}}
+            <option value="{{id}}" {{#if (eq ../effect.effect.traitFilter id)}}selected{{/if}}>{{label}}</option>
+            {{/each}}
+          </select>
+        </div>
+        <div class="dce-form-row">
+          <label>Roll Type Filter
+            <span class="dce-hint-icon" title="Only apply to action rolls, reaction rolls, or any roll.">
+              <i class="fas fa-circle-question"></i>
+            </span>
+          </label>
+          <select name="effect.actionTypeFilter">
+            {{#each actionRollTypes}}
+            <option value="{{id}}" {{#if (eq ../effect.effect.actionTypeFilter id)}}selected{{/if}}>{{label}}</option>
+            {{/each}}
+          </select>
+        </div>
+      </div>
+
+    </div>
+  </fieldset>
+
+  <fieldset class="dce-fieldset">
+    <legend>Chains — also trigger these effects</legend>
+    <div class="dce-fieldset-inner">
+      <div class="dce-form-row">
+        <label>Chain Effects
+          <span class="dce-hint-icon" title="When this effect fires, also trigger the selected effects. Max depth: 3.">
+            <i class="fas fa-circle-question"></i>
+          </span>
+        </label>
+        <select name="effect.chainEffectIds" multiple class="dce-chain-select" size="4">
+          {{#each chainableEffects}}
+          <option value="{{id}}" {{#if selected}}selected{{/if}}>{{name}}</option>
+          {{/each}}
+        </select>
+      </div>
+      <p class="dce-help"><em>Hold Ctrl/Cmd to select multiple. Leave empty for no chains.</em></p>
     </div>
   </fieldset>
 

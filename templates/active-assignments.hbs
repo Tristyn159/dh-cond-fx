@@ -1,0 +1,56 @@
+<div class="dce-assignments-wrap">
+
+  {{#if isEmpty}}
+  <div class="dce-empty-state">
+    <i class="fas fa-diagram-project fa-3x"></i>
+    <p>No conditional effects are currently assigned.</p>
+    <p>Assign effects via the <strong>Manager</strong>, <strong>Effect Palette</strong>,
+       or <strong>Scene Overrides</strong>.</p>
+  </div>
+  {{else}}
+
+  <p class="dce-assignments-hint">
+    <i class="fas fa-circle-info"></i>
+    Showing all actors with assigned conditional effects and their sources.
+  </p>
+
+  <div class="dce-assignments-list">
+    {{#each actors}}
+    <div class="dce-assignments-actor" data-actor-id="{{actorId}}" data-actor-uuid="{{actorUuid}}">
+
+      <div class="dce-assignments-actor-header">
+        <i class="fas {{actorIcon}}"></i>
+        <span class="dce-assignments-actor-name" data-action="openActorSheet" title="Open {{name}}">{{name}}</span>
+        <span class="dce-badge">{{typeLabel}}</span>
+        <span class="dce-assignments-count">{{effectCount}} effect{{#unless singleEffect}}s{{/unless}}</span>
+      </div>
+
+      <div class="dce-assignments-effects">
+        {{#each sources}}
+        <div class="dce-assignments-row {{#if sceneDisabled}}dce-row-disabled{{/if}}"
+             data-effect-id="{{effectId}}" data-source-type="{{sourceType}}" data-source-id="{{sourceId}}">
+          <span class="dce-assignments-effect-icon">
+            <i class="fas {{beneficialIcon}}"></i>
+          </span>
+          <span class="dce-assignments-effect-name" title="{{effectName}}: {{conditionSummary}} → {{effectSummary}}">
+            {{effectName}}
+          </span>
+          <span class="dce-assignments-source" title="{{sourceTooltip}}">
+            <i class="fas {{sourceIcon}}"></i>
+            <span class="dce-assignments-source-label {{#if sourceClickable}}dce-assignments-link{{/if}}"
+              {{#if sourceClickable}}data-action="openSourceSheet"{{/if}}>{{sourceLabel}}</span>
+          </span>
+          <button type="button" class="dce-assignments-remove" data-action="removeAssignment"
+                  title="Remove this effect from {{sourceLabel}}">
+            <i class="fas fa-times"></i>
+          </button>
+        </div>
+        {{/each}}
+      </div>
+
+    </div>
+    {{/each}}
+  </div>
+  {{/if}}
+
+</div>

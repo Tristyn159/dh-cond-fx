@@ -8,8 +8,10 @@ export const MODULE_ID      = 'daggerheart-cond-fx';
 export const SETTINGS_KEY   = 'conditionalEffects';
 export const FLAG_ASSIGNED  = 'assignedEffects';
 export const FLAG_ACTOR     = 'actorEffects';
-export const SCENE_FLAG     = 'sceneOverrides';
-export const FLAG_PC_TOGGLES = 'pcToggles'; // Key for the Scene flag
+export const SCENE_FLAG       = 'sceneOverrides';   // Legacy — kept for migration
+export const FLAG_SCENE_OFF   = 'sceneDisabled';    // Array of effect IDs force-disabled in this scene
+export const FLAG_PC_TOGGLES  = 'pcToggles';        // Key for the Scene flag (PCs)
+export const FLAG_NPC_TOGGLES = 'npcToggles';       // Key for the Scene flag (Adversaries)
 
 export const APPLICABLE_ITEM_TYPES = ['weapon', 'armor', 'domainCard', 'feature'];
 export const ADV_MODE = { NORMAL: 0, ADVANTAGE: 1, DISADVANTAGE: -1 };
@@ -87,17 +89,50 @@ export const CONDITION_TYPES = [
     { id: 'always',      label: 'Always (unconditional)'       },
     { id: 'status',      label: 'Subject has Status/Condition' },
     { id: 'attribute',   label: 'Subject Attribute Value'      },
-    /**{ id: 'range',       label: 'Attack Range'                 },  -- need to fix*/
+    { id: 'range',       label: 'Proximity / Range'             },
     { id: 'weapon',      label: 'Weapon Slot'                  },
     { id: 'damage_type', label: 'Incoming Damage Type'         },
+    // ── Trigger-based conditionals (set by events) ─────────────────────────
+    { id: 'took_threshold',      label: 'When Subject Takes Damage Threshold' },
+    { id: 'inflicted_threshold', label: 'When Subject Inflicts Damage Threshold' },
+    { id: 'rolled_fear',         label: 'When Subject Rolls with Fear' },
+    { id: 'rolled_critical',     label: 'When Subject Rolls a Critical Success' },
+    { id: 'spent_hope',          label: 'When Subject Spends Hope' },
+    { id: 'armor_slot_marked',   label: 'When Subject Marks an Armor Slot' },
+    { id: 'no_armor_remaining',  label: 'Subject Has No Armor Remaining' },
+];
+
+export const DAMAGE_THRESHOLDS = [
+    { id: 'minor',  label: 'Minor'  },
+    { id: 'major',  label: 'Major'  },
+    { id: 'severe', label: 'Severe' },
+];
+
+export const DURATION_MODES = [
+    { id: 'permanent',     label: 'Permanent' },
+    { id: 'once',          label: 'Once (consumed on first use)' },
+    { id: 'uses',          label: 'Limited Uses' },
+    { id: 'next_roll',     label: 'Next Roll Only' },
+    { id: 'next_damage',   label: 'Next Hit/Damage Only' },
+    { id: 'end_of_combat', label: 'Until End of Combat' },
+    { id: 'countdown',     label: 'Countdown (ticks down on events)' },
+];
+
+export const COUNTDOWN_TICK_EVENTS = [
+    { id: 'round_start',  label: 'Each Round (start of turn)' },
+    { id: 'on_roll',      label: 'Each Roll' },
+    { id: 'on_attacked',  label: 'Each Time Attacked' },
+    { id: 'on_damage',    label: 'Each Time Damaged' },
 ];
 
 export const EFFECT_TYPES = [
     { id: 'damage_bonus',      label: 'Damage Bonus (dice and/or flat)'              },
     { id: 'damage_multiplier', label: 'Damage Multiplier (multiply damage taken)'    },
     { id: 'damage_reduction',  label: 'Damage Threshold Bonus (major / severe)'      },
-    { id: 'defense_bonus',     label: 'Defense / Evasion Bonus (flat)'               },
+    { id: 'defense_bonus',     label: 'Evasion / Difficulty Bonus (flat)'             },
+    { id: 'proficiency_bonus', label: 'Proficiency Bonus (while condition met)'      },
     { id: 'status_on_hit',     label: 'Apply Status to Target on Hit'                },
+    { id: 'stress_on_hit',     label: 'Apply Stress to Target on Hit'                },
     { id: 'apply_status',      label: 'Apply Status to Subject (while condition met)'},
     { id: 'roll_bonus',        label: 'Roll Bonus (flat)'                            },
     { id: 'advantage',         label: 'Grant Advantage'                              },
@@ -118,16 +153,46 @@ export const INCOMING_DAMAGE_TYPES = [
     { id: 'any',      label: 'Any'      },
 ];
 
-/**export const RANGE_TYPES = [
-    { id: 'melee',  label: 'Melee'  },
-    { id: 'ranged', label: 'Ranged' },
-    { id: 'any',    label: 'Any'    },
-]; -- need to fix and add other ranges*/
+export const RANGE_TYPES = [
+    { id: 'melee',     label: 'Melee'      },
+    { id: 'veryClose', label: 'Very Close'  },
+    { id: 'close',     label: 'Close'       },
+    { id: 'far',       label: 'Far'         },
+    { id: 'veryFar',   label: 'Very Far'    },
+];
+
+export const RANGE_MODES = [
+    { id: 'within',    label: 'Within Range (at or closer)' },
+    { id: 'at',        label: 'At Range (exact band)'       },
+    { id: 'beyond',    label: 'Further Than'                 },
+];
+
+export const RANGE_SUBJECTS = [
+    { id: 'target',   label: 'Current Target(s)' },
+    { id: 'friends',  label: 'Friendly Tokens'   },
+    { id: 'enemies',  label: 'Hostile Tokens'     },
+];
 
 export const WEAPON_SLOTS = [
     { id: 'primary',   label: 'Primary'   },
     { id: 'secondary', label: 'Secondary' },
     { id: 'any',       label: 'Any'       },
+];
+
+export const TRAITS = [
+    { id: 'any',       label: 'Any Trait'  },
+    { id: 'agility',   label: 'Agility'    },
+    { id: 'strength',  label: 'Strength'   },
+    { id: 'finesse',   label: 'Finesse'    },
+    { id: 'instinct',  label: 'Instinct'   },
+    { id: 'presence',  label: 'Presence'   },
+    { id: 'knowledge', label: 'Knowledge'  },
+];
+
+export const ACTION_ROLL_TYPES = [
+    { id: 'any',      label: 'Any Roll'      },
+    { id: 'action',   label: 'Action Roll'   },
+    { id: 'reaction', label: 'Reaction Roll' },
 ];
 
 export function defaultEffect() {
@@ -137,6 +202,12 @@ export function defaultEffect() {
         description: '',
         enabled:     true,
         beneficial:  true,
+        duration: {
+            mode: 'permanent',
+            uses: 1,
+            countdownTicks: 3,
+            countdownTickOn: 'round_start',
+        },
         condition: {
             type:               'always',
             subject:            'target',
@@ -144,9 +215,13 @@ export function defaultEffect() {
             attribute:          'hope',
             operator:           '>=',
             value:              1,
-            /**range:           'any',*/
+            range:              'close',
+            rangeMode:          'within',
+            rangeSubject:       'target',
+            rangeCount:         1,
             weaponSlot:         'any',
             incomingDamageType: 'any',
+            threshold:          'major',
         },
         effect: {
             type:              'damage_bonus',
@@ -161,9 +236,286 @@ export function defaultEffect() {
             statusToApply:     'vulnerable',
             applyStatus:       'vulnerable',
             damageMultiplier:  2,
+            traitFilter:       'any',
+            actionTypeFilter:  'any',
+            proficiencyBonus:  1,
+            stressAmount:      1,
+            chainEffectIds:    [],
         },
     };
 }
+
+// ─── Effect Presets Library ───────────────────────────────────────────────────
+
+export const EFFECT_PRESETS = [
+    {
+        category: 'Status-Based',
+        presets: [
+            {
+                name: 'Vulnerable — Advantage on Attacks',
+                description: 'Grant advantage on attack rolls against a Vulnerable target.',
+                icon: 'fa-crosshairs',
+                data: {
+                    name: 'Vulnerable — Advantage on Attacks',
+                    description: 'Attacks against a Vulnerable target have advantage.',
+                    beneficial: false,
+                    condition: { type: 'status', subject: 'target', status: 'vulnerable' },
+                    effect: { type: 'advantage' },
+                    duration: { mode: 'permanent' },
+                },
+            },
+            {
+                name: 'Hidden — Disadvantage on Attacks',
+                description: 'Force disadvantage on attacks against a Hidden target.',
+                icon: 'fa-eye-slash',
+                data: {
+                    name: 'Hidden — Disadvantage on Attacks',
+                    description: 'Attacks against a Hidden target have disadvantage.',
+                    beneficial: true,
+                    condition: { type: 'status', subject: 'self', status: 'hidden' },
+                    effect: { type: 'disadvantage' },
+                    duration: { mode: 'permanent' },
+                },
+            },
+            {
+                name: 'Blessed — Threshold +2',
+                description: 'While Blessed, increase damage thresholds by +2 Major/Severe.',
+                icon: 'fa-hand-sparkles',
+                data: {
+                    name: 'Blessed — Threshold +2',
+                    description: 'Blessed increases damage thresholds by +2.',
+                    beneficial: true,
+                    condition: { type: 'status', subject: 'self', status: 'blessed' },
+                    effect: { type: 'damage_reduction', thresholdMajor: 2, thresholdSevere: 2 },
+                    duration: { mode: 'permanent' },
+                },
+            },
+            {
+                name: 'Poisoned — Extra Damage Taken',
+                description: 'While Poisoned, incoming damage is multiplied by 1.5×.',
+                icon: 'fa-skull-crossbones',
+                data: {
+                    name: 'Poisoned — Extra Damage Taken',
+                    description: 'Poisoned targets take 1.5× incoming damage.',
+                    beneficial: false,
+                    condition: { type: 'status', subject: 'self', status: 'poisoned' },
+                    effect: { type: 'damage_multiplier', damageMultiplier: 1.5, incomingDamageType: 'any' },
+                    duration: { mode: 'permanent' },
+                },
+            },
+            {
+                name: 'Weakened — Roll Penalty',
+                description: 'While Weakened, subtract 2 from all rolls.',
+                icon: 'fa-arrow-down',
+                data: {
+                    name: 'Weakened — Roll Penalty',
+                    description: 'Weakened imposes -2 to all rolls.',
+                    beneficial: false,
+                    condition: { type: 'status', subject: 'self', status: 'weakened' },
+                    effect: { type: 'roll_bonus', rollBonus: -2 },
+                    duration: { mode: 'permanent' },
+                },
+            },
+        ],
+    },
+    {
+        category: 'Attribute-Based',
+        presets: [
+            {
+                name: 'Low HP Rage — +1d6 Damage',
+                description: 'When below 25% HP, gain +1d6 damage on attacks.',
+                icon: 'fa-fire',
+                data: {
+                    name: 'Low HP Rage',
+                    description: 'Below 25% HP: +1d6 damage bonus.',
+                    beneficial: true,
+                    condition: { type: 'attribute', subject: 'self', attribute: 'hitPoints_pct', operator: '<=', value: 25 },
+                    effect: { type: 'damage_bonus', dice: '1d6', bonus: 0, damageType: 'any' },
+                    duration: { mode: 'permanent' },
+                },
+            },
+            {
+                name: 'Desperate Stand — Advantage',
+                description: 'At 1 HP, gain advantage on all rolls.',
+                icon: 'fa-shield-halved',
+                data: {
+                    name: 'Desperate Stand',
+                    description: 'At 1 HP: advantage on all rolls.',
+                    beneficial: true,
+                    condition: { type: 'attribute', subject: 'self', attribute: 'hitPoints', operator: '<=', value: 1 },
+                    effect: { type: 'advantage' },
+                    duration: { mode: 'permanent' },
+                },
+            },
+            {
+                name: 'Hope Surge — +2 to Rolls',
+                description: 'While Hope is at 5+, gain +2 to all rolls.',
+                icon: 'fa-sun',
+                data: {
+                    name: 'Hope Surge',
+                    description: 'High Hope (5+): +2 to all rolls.',
+                    beneficial: true,
+                    condition: { type: 'attribute', subject: 'self', attribute: 'hope', operator: '>=', value: 5 },
+                    effect: { type: 'roll_bonus', rollBonus: 2 },
+                    duration: { mode: 'permanent' },
+                },
+            },
+            {
+                name: 'Stress Cascade — Disadvantage',
+                description: 'At 5+ Stress, suffer disadvantage on all rolls.',
+                icon: 'fa-brain',
+                data: {
+                    name: 'Stress Cascade',
+                    description: 'High Stress (5+): disadvantage on all rolls.',
+                    beneficial: false,
+                    condition: { type: 'attribute', subject: 'self', attribute: 'stress', operator: '>=', value: 5 },
+                    effect: { type: 'disadvantage' },
+                    duration: { mode: 'permanent' },
+                },
+            },
+            {
+                name: 'No Armor — Evasion Penalty',
+                description: 'With no armor remaining, Evasion is reduced by 2.',
+                icon: 'fa-shield',
+                data: {
+                    name: 'No Armor — Evasion Penalty',
+                    description: 'No armor remaining: -2 Evasion.',
+                    beneficial: false,
+                    condition: { type: 'no_armor_remaining', subject: 'self' },
+                    effect: { type: 'defense_bonus', defenseBonus: -2 },
+                    duration: { mode: 'permanent' },
+                },
+            },
+        ],
+    },
+    {
+        category: 'Trigger-Based',
+        presets: [
+            {
+                name: 'Fear-Fueled — +1d4 Damage',
+                description: 'After rolling with Fear, deal +1d4 extra damage on the next hit.',
+                icon: 'fa-ghost',
+                data: {
+                    name: 'Fear-Fueled',
+                    description: 'Rolled with Fear: +1d4 on next damage.',
+                    beneficial: true,
+                    condition: { type: 'rolled_fear', subject: 'self' },
+                    effect: { type: 'damage_bonus', dice: '1d4', bonus: 0, damageType: 'any' },
+                    duration: { mode: 'next_damage' },
+                },
+            },
+            {
+                name: 'Critical Momentum — Apply Vulnerable',
+                description: 'On a Critical Success, apply Vulnerable to the target.',
+                icon: 'fa-star',
+                data: {
+                    name: 'Critical Momentum',
+                    description: 'On Critical: target becomes Vulnerable.',
+                    beneficial: true,
+                    condition: { type: 'rolled_critical', subject: 'self' },
+                    effect: { type: 'status_on_hit', statusToApply: 'vulnerable' },
+                    duration: { mode: 'once' },
+                },
+            },
+            {
+                name: 'Hope Spent — +1 Roll Bonus',
+                description: 'After spending Hope, gain +1 to the next roll.',
+                icon: 'fa-hand-holding-heart',
+                data: {
+                    name: 'Hope Spent — +1 Roll Bonus',
+                    description: 'After spending Hope: +1 to next roll.',
+                    beneficial: true,
+                    condition: { type: 'spent_hope', subject: 'self' },
+                    effect: { type: 'roll_bonus', rollBonus: 1 },
+                    duration: { mode: 'next_roll' },
+                },
+            },
+            {
+                name: 'Armor Break — Evasion -1',
+                description: 'When an armor slot is marked, reduce Evasion by 1 until end of combat.',
+                icon: 'fa-shield-virus',
+                data: {
+                    name: 'Armor Break — Evasion -1',
+                    description: 'Armor slot marked: -1 Evasion until combat ends.',
+                    beneficial: false,
+                    condition: { type: 'armor_slot_marked', subject: 'self' },
+                    effect: { type: 'defense_bonus', defenseBonus: -1 },
+                    duration: { mode: 'end_of_combat' },
+                },
+            },
+            {
+                name: 'Took Major Damage — Stress',
+                description: 'When taking Major damage, apply 1 Stress to the target on next hit.',
+                icon: 'fa-bolt',
+                data: {
+                    name: 'Took Major — Stress on Hit',
+                    description: 'After taking Major damage: apply 1 Stress on next hit.',
+                    beneficial: true,
+                    condition: { type: 'took_threshold', subject: 'self', threshold: 'major' },
+                    effect: { type: 'stress_on_hit', stressAmount: 1 },
+                    duration: { mode: 'once' },
+                },
+            },
+        ],
+    },
+    {
+        category: 'Combat Utility',
+        presets: [
+            {
+                name: 'Aura of Protection — Evasion +1',
+                description: 'Unconditional +1 Evasion bonus (assign to armor).',
+                icon: 'fa-shield-heart',
+                data: {
+                    name: 'Aura of Protection',
+                    description: 'Unconditional +1 to Evasion.',
+                    beneficial: true,
+                    condition: { type: 'always' },
+                    effect: { type: 'defense_bonus', defenseBonus: 1 },
+                    duration: { mode: 'permanent' },
+                },
+            },
+            {
+                name: 'Enchanted Weapon — +1d4 Magic Damage',
+                description: 'Unconditional +1d4 magical damage bonus (assign to weapon).',
+                icon: 'fa-wand-sparkles',
+                data: {
+                    name: 'Enchanted Weapon',
+                    description: '+1d4 magical damage.',
+                    beneficial: true,
+                    condition: { type: 'always' },
+                    effect: { type: 'damage_bonus', dice: '1d4', bonus: 0, damageType: 'magical' },
+                    duration: { mode: 'permanent' },
+                },
+            },
+            {
+                name: 'Proficiency +1',
+                description: 'Unconditional +1 to Proficiency (assign to weapon or feature).',
+                icon: 'fa-dumbbell',
+                data: {
+                    name: 'Proficiency +1',
+                    description: '+1 to Proficiency.',
+                    beneficial: true,
+                    condition: { type: 'always' },
+                    effect: { type: 'proficiency_bonus', proficiencyBonus: 1 },
+                    duration: { mode: 'permanent' },
+                },
+            },
+            {
+                name: 'Countdown — 3 Round Buff',
+                description: 'Advantage on all rolls for 3 rounds (countdown).',
+                icon: 'fa-hourglass-half',
+                data: {
+                    name: '3-Round Advantage',
+                    description: 'Advantage for 3 rounds.',
+                    beneficial: true,
+                    condition: { type: 'always' },
+                    effect: { type: 'advantage' },
+                    duration: { mode: 'countdown', countdownTicks: 3, countdownTickOn: 'round_start' },
+                },
+            },
+        ],
+    },
+];
 
 // ─── Settings CRUD ────────────────────────────────────────────────────────────
 
@@ -202,6 +554,27 @@ export async function setSceneOverride(effectId, value) {
 }
 
 /**
+ * Gets the list of effect IDs force-disabled in this scene.
+ */
+export function getSceneDisabled() {
+    return game.scenes.active?.getFlag(MODULE_ID, FLAG_SCENE_OFF) ?? [];
+}
+
+/**
+ * Toggles force-disable for an effect in this scene.
+ */
+export async function setSceneDisabled(effectId, disabled) {
+    if (!game.scenes.active) return;
+    let list = [...getSceneDisabled()];
+    if (disabled) {
+        if (!list.includes(effectId)) list.push(effectId);
+    } else {
+        list = list.filter(id => id !== effectId);
+    }
+    await game.scenes.active.setFlag(MODULE_ID, FLAG_SCENE_OFF, list);
+}
+
+/**
  * Gets the list of effect IDs toggled on for all PCs in the active scene.
  */
 export function getPcToggles() {
@@ -222,11 +595,46 @@ export async function setPcToggle(effectId, enabled) {
     await game.scenes.active.setFlag(MODULE_ID, FLAG_PC_TOGGLES, toggles);
 }
 
+/**
+ * Gets the list of effect IDs toggled on for all adversaries in the active scene.
+ */
+export function getNpcToggles() {
+    return game.scenes.active?.getFlag(MODULE_ID, FLAG_NPC_TOGGLES) ?? [];
+}
+
+/**
+ * Toggles a scene-wide effect for adversaries.
+ */
+export async function setNpcToggle(effectId, enabled) {
+    if (!game.scenes.active) return;
+    let toggles = [...getNpcToggles()];
+    if (enabled) {
+        if (!toggles.includes(effectId)) toggles.push(effectId);
+    } else {
+        toggles = toggles.filter(id => id !== effectId);
+    }
+    await game.scenes.active.setFlag(MODULE_ID, FLAG_NPC_TOGGLES, toggles);
+}
+
 export async function clearSceneOverrides() {
-    if (game.scenes.active) await game.scenes.active.unsetFlag(MODULE_ID, SCENE_FLAG);
+    if (!game.scenes.active) return;
+    // Use a single update() call to clear all override flags atomically.
+    // Sequential unsetFlag() calls can race and leave stale flags behind.
+    await game.scenes.active.update({
+        [`flags.${MODULE_ID}`]: {
+            [`-=${SCENE_FLAG}`]:       null,
+            [`-=${FLAG_SCENE_OFF}`]:   null,
+            [`-=${FLAG_PC_TOGGLES}`]:  null,
+            [`-=${FLAG_NPC_TOGGLES}`]: null,
+        },
+    });
 }
 
 export function isEffectActive(effect) {
+    // Scene-disabled always wins
+    const disabled = getSceneDisabled();
+    if (disabled.includes(effect.id)) return false;
+    // Legacy scene overrides (On/Off) — kept for backward compat until cleared
     const overrides = getSceneOverrides();
     if (Object.prototype.hasOwnProperty.call(overrides, effect.id)) return overrides[effect.id];
     return effect.enabled;
@@ -257,12 +665,36 @@ export function summarizeCondition(condition) {
         const a = ATTRIBUTES.find(a => a.id === condition.attribute)?.label ?? condition.attribute;
         return `${subject} ${a} ${condition.operator} ${condition.value}`;
     }
-    /**if (condition.type === 'range')  return `Range: ${RANGE_TYPES.find(r => r.id === condition.range)?.label ?? condition.range}`;*/
+    if (condition.type === 'range') {
+        const mode  = RANGE_MODES.find(m => m.id === condition.rangeMode)?.label ?? condition.rangeMode ?? 'Within';
+        const band  = RANGE_TYPES.find(r => r.id === condition.range)?.label ?? condition.range;
+        const subj  = condition.rangeSubject ?? 'target';
+        if (subj === 'target') return `${mode}: ${band} — Target`;
+        const label = subj === 'friends' ? 'Friends' : 'Enemies';
+        const count = condition.rangeCount ?? 1;
+        return `${mode}: ${band} — ${count}+ ${label}`;
+    }
     if (condition.type === 'damage_type') {
         const dt = INCOMING_DAMAGE_TYPES.find(d => d.id === condition.incomingDamageType)?.label ?? condition.incomingDamageType;
         return `Incoming: ${dt} damage`;
     }
     if (condition.type === 'weapon') return `Slot: ${WEAPON_SLOTS.find(w => w.id === condition.weaponSlot)?.label ?? condition.weaponSlot}`;
+    if (condition.type === 'took_threshold') {
+        const th = DAMAGE_THRESHOLDS.find(t => t.id === condition.threshold)?.label ?? condition.threshold;
+        return `${subject}: Took ${th} damage`;
+    }
+    if (condition.type === 'inflicted_threshold') {
+        const th = DAMAGE_THRESHOLDS.find(t => t.id === condition.threshold)?.label ?? condition.threshold;
+        return `${subject}: Inflicted ${th} damage`;
+    }
+    if (condition.type === 'rolled_fear') return `${subject}: Rolled with Fear`;
+    if (condition.type === 'rolled_critical') return `${subject}: Rolled Critical`;
+    if (condition.type === 'spent_hope') return `${subject}: Spent Hope`;
+    if (condition.type === 'armor_slot_marked') return `${subject}: Marked Armor Slot`;
+    if (condition.type === 'no_armor_remaining') {
+        const subject = condition.subject === 'target' ? 'Target' : 'Self';
+        return `${subject}: No Armor Remaining`;
+    }
     return '—';
 }
 
@@ -285,7 +717,7 @@ export function summarizeEffect(effect) {
         const sev = effect.thresholdSevere ?? 0;
         return `Threshold +${maj} major / +${sev} severe`;
     }
-    if (effect.type === 'defense_bonus')    return `Evasion ${(effect.defenseBonus ?? 0) >= 0 ? '+' : ''}${effect.defenseBonus ?? 0}`;
+    if (effect.type === 'defense_bonus')    return `Evasion/Difficulty ${(effect.defenseBonus ?? 0) >= 0 ? '+' : ''}${effect.defenseBonus ?? 0}`;
     if (effect.type === 'status_on_hit') {
         const s = STATUSES.find(s => s.id === effect.statusToApply)?.label ?? effect.statusToApply;
         return `Apply: ${s}`;
@@ -294,9 +726,27 @@ export function summarizeEffect(effect) {
         const s = STATUSES.find(s => s.id === effect.applyStatus)?.label ?? effect.applyStatus;
         return `Status: ${s} (while active)`;
     }
-    if (effect.type === 'roll_bonus')    return `Roll ${effect.rollBonus >= 0 ? '+' : ''}${effect.rollBonus}`;
-    if (effect.type === 'advantage')    return 'Advantage';
-    if (effect.type === 'disadvantage') return 'Disadvantage';
+    if (effect.type === 'proficiency_bonus') {
+        const b = effect.proficiencyBonus ?? 1;
+        return `Proficiency ${b >= 0 ? '+' : ''}${b}`;
+    }
+    if (effect.type === 'stress_on_hit') {
+        return `Apply: ${effect.stressAmount ?? 1} Stress`;
+    }
+    if (effect.type === 'roll_bonus' || effect.type === 'advantage' || effect.type === 'disadvantage') {
+        let base;
+        if (effect.type === 'roll_bonus') base = `Roll ${effect.rollBonus >= 0 ? '+' : ''}${effect.rollBonus}`;
+        else if (effect.type === 'advantage') base = 'Advantage';
+        else base = 'Disadvantage';
+        const qualifiers = [];
+        if (effect.traitFilter && effect.traitFilter !== 'any') {
+            qualifiers.push(TRAITS.find(t => t.id === effect.traitFilter)?.label ?? effect.traitFilter);
+        }
+        if (effect.actionTypeFilter && effect.actionTypeFilter !== 'any') {
+            qualifiers.push(ACTION_ROLL_TYPES.find(a => a.id === effect.actionTypeFilter)?.label ?? effect.actionTypeFilter);
+        }
+        return qualifiers.length ? `${base} (${qualifiers.join(', ')})` : base;
+    }
     return '—';
 }
 
@@ -313,8 +763,9 @@ export class ConditionalEffectsManager extends HandlebarsApplicationMixin(Applic
     _activeTab = 'effects';
 
     async _prepareContext(_options) {
-        const overrides = getSceneOverrides();
-        const pcToggles = getPcToggles(); // Get active PC toggles
+        const sceneDisabled = getSceneDisabled();
+        const pcToggles = getPcToggles();
+        const npcToggles = getNpcToggles();
         const effects = getAllEffects().map(e => ({
             ...e,
             conditionSummary: summarizeCondition(e.condition),
@@ -322,13 +773,13 @@ export class ConditionalEffectsManager extends HandlebarsApplicationMixin(Applic
             beneficialLabel:  e.beneficial ? 'Beneficial' : 'Detrimental',
             beneficialIcon:   e.beneficial ? 'fa-shield-heart dce-beneficial' : 'fa-skull-crossbones dce-detrimental',
             effectiveEnabled: isEffectActive(e),
-            overrideValue:    Object.prototype.hasOwnProperty.call(overrides, e.id) ? overrides[e.id] : null,
-            overrideEnabled:  overrides[e.id] === true,
-            overrideDisabled: overrides[e.id] === false,
-            overridePC:       pcToggles.includes(e.id), // Pass to template
+            overrideOff:      sceneDisabled.includes(e.id),
+            overridePC:       pcToggles.includes(e.id),
+            overrideNPC:      npcToggles.includes(e.id),
         }));
         return { effects, isEmpty: effects.length === 0, activeTab: this._activeTab,
-                 sceneName: game.scenes.active?.name ?? 'No Active Scene' };
+                 sceneName: game.scenes.active?.name ?? 'No Active Scene',
+                 presetCategories: EFFECT_PRESETS };
     }
 
     _onRender(_context, _options) {
@@ -384,22 +835,12 @@ export class ConditionalEffectsManager extends HandlebarsApplicationMixin(Applic
         });
 
         // Scene override buttons
-        el.querySelectorAll('[data-action="overrideEnable"]').forEach(btn => {
-            btn.addEventListener('click', async e => {
-                e.preventDefault();
-                const { effectId } = btn.closest('[data-effect-id]').dataset;
-                const cur = getSceneOverrides()[effectId];
-                await setSceneOverride(effectId, cur === true ? null : true);
-                this.render();
-            });
-        });
-
         el.querySelectorAll('[data-action="overrideDisable"]').forEach(btn => {
             btn.addEventListener('click', async e => {
                 e.preventDefault();
                 const { effectId } = btn.closest('[data-effect-id]').dataset;
-                const cur = getSceneOverrides()[effectId];
-                await setSceneOverride(effectId, cur === false ? null : false);
+                const sceneDisabled = getSceneDisabled();
+                await setSceneDisabled(effectId, !sceneDisabled.includes(effectId));
                 this.render();
             });
         });
@@ -417,6 +858,32 @@ export class ConditionalEffectsManager extends HandlebarsApplicationMixin(Applic
                 const { effectId } = btn.closest('[data-effect-id]').dataset;
                 const pcToggles = getPcToggles();
                 await setPcToggle(effectId, !pcToggles.includes(effectId));
+                this.render();
+            });
+        });
+
+        el.querySelectorAll('[data-action="toggleNpcGlobal"]').forEach(btn => {
+            btn.addEventListener('click', async e => {
+                e.preventDefault();
+                const { effectId } = btn.closest('[data-effect-id]').dataset;
+                const npcToggles = getNpcToggles();
+                await setNpcToggle(effectId, !npcToggles.includes(effectId));
+                this.render();
+            });
+        });
+
+        // Preset creation
+        el.querySelectorAll('[data-action="createFromPreset"]').forEach(btn => {
+            btn.addEventListener('click', async e => {
+                e.preventDefault();
+                const card = btn.closest('.dce-preset-card');
+                const catIdx = Number(card.dataset.presetCategory);
+                const preIdx = Number(card.dataset.presetIndex);
+                const preset = EFFECT_PRESETS[catIdx]?.presets?.[preIdx];
+                if (!preset) return;
+                const newEffect = await createEffect(preset.data);
+                ui.notifications.info(`Created effect: "${newEffect.name}"`);
+                this._activeTab = 'effects';
                 this.render();
             });
         });
@@ -446,17 +913,33 @@ export class ConditionalEffectConfig extends HandlebarsApplicationMixin(Applicat
         const effect   = existing ?? defaultEffect();
         const cond = effect.condition;
         const eff  = effect.effect;
+        const dur  = effect.duration ?? { mode: 'permanent', uses: 1 };
+        const chainIds = new Set(eff.chainEffectIds ?? []);
+        const chainableEffects = getAllEffects()
+            .filter(e => e.id !== this.effectId) // Don't allow self-chain
+            .map(e => ({ id: e.id, name: e.name, selected: chainIds.has(e.id) }));
         return {
             effect, effectId: this.effectId,
+            chainableEffects,
             statuses: STATUSES, attributes: ATTRIBUTES, operators: OPERATORS,
             conditionTypes: CONDITION_TYPES, effectTypes: EFFECT_TYPES,
-            damageTypes: DAMAGE_TYPES, incomingDamageTypes: INCOMING_DAMAGE_TYPES,/** rangeTypes: RANGE_TYPES,*/ weaponSlots: WEAPON_SLOTS,
-            showSubject:          cond.type === 'status' || cond.type === 'attribute',
+            damageTypes: DAMAGE_TYPES, incomingDamageTypes: INCOMING_DAMAGE_TYPES,
+            rangeTypes: RANGE_TYPES, rangeModes: RANGE_MODES, rangeSubjects: RANGE_SUBJECTS,
+            weaponSlots: WEAPON_SLOTS,
+            damageThresholds: DAMAGE_THRESHOLDS,
+            durationModes: DURATION_MODES,
+            countdownTickEvents: COUNTDOWN_TICK_EVENTS,
+            traits: TRAITS, actionRollTypes: ACTION_ROLL_TYPES,
+            showSubject:          cond.type === 'status' || cond.type === 'attribute' || cond.type === 'took_threshold' || cond.type === 'inflicted_threshold' || cond.type === 'rolled_fear' || cond.type === 'rolled_critical' || cond.type === 'spent_hope' || cond.type === 'armor_slot_marked' || cond.type === 'no_armor_remaining',
             showStatus:           cond.type === 'status',
             showAttribute:        cond.type === 'attribute',
-            /**showRange:            cond.type === 'range',*/
+            showRange:            cond.type === 'range',
+            showRangeCount:       cond.type === 'range' && (cond.rangeSubject === 'friends' || cond.rangeSubject === 'enemies'),
             showWeaponSlot:       cond.type === 'weapon',
             showIncomingDamageType: cond.type === 'damage_type',
+            showThreshold:        cond.type === 'took_threshold' || cond.type === 'inflicted_threshold',
+            showDurationUses:     dur.mode === 'uses',
+            showCountdown:        dur.mode === 'countdown',
             showDamageBonus:      eff.type  === 'damage_bonus',
             showDamageMultiplier: eff.type  === 'damage_multiplier',
             showDamageReduction:  eff.type  === 'damage_reduction',
@@ -464,15 +947,22 @@ export class ConditionalEffectConfig extends HandlebarsApplicationMixin(Applicat
             showStatusOnHit:      eff.type  === 'status_on_hit',
             showApplyStatus:      eff.type  === 'apply_status',
             showRollBonus:        eff.type  === 'roll_bonus',
+            showRollFilters:      eff.type === 'roll_bonus' || eff.type === 'advantage' || eff.type === 'disadvantage',
+            showProficiencyBonus: eff.type === 'proficiency_bonus',
+            showStressOnHit:      eff.type === 'stress_on_hit',
             enabledStr:          String(effect.enabled),
             beneficialStr:       String(effect.beneficial),
+            durationMode:        String(dur.mode ?? 'permanent'),
+            durationUses:        Number(dur.uses ?? 1),
         };
     }
 
     _onRender(_context, _options) {
         const el = this.element;
         el.querySelector('[name="condition.type"]')?.addEventListener('change', () => this._updateVisibility());
+        el.querySelector('[name="condition.rangeSubject"]')?.addEventListener('change', () => this._updateVisibility());
         el.querySelector('[name="effect.type"]')?.addEventListener('change',  () => this._updateVisibility());
+        el.querySelector('[name="duration.mode"]')?.addEventListener('change',  () => this._updateVisibility());
         this._updateVisibility();
 
         const beneficialInput = el.querySelector('[name="beneficial"]');
@@ -488,16 +978,47 @@ export class ConditionalEffectConfig extends HandlebarsApplicationMixin(Applicat
         el.addEventListener('submit', async e => {
             e.preventDefault();
             const fd  = new FormData(el);
+            // Multi-select values need special handling — getAll returns array
+            const chainIds = fd.getAll('effect.chainEffectIds').filter(Boolean);
+            fd.delete('effect.chainEffectIds');
             const raw = foundry.utils.expandObject(Object.fromEntries(fd.entries()));
+            if (raw.effect) raw.effect.chainEffectIds = chainIds;
             raw.enabled    = raw.enabled    === 'true' || raw.enabled    === true;
             raw.beneficial = raw.beneficial === 'true' || raw.beneficial === true;
+            if (raw.duration) {
+                raw.duration.uses = Number(raw.duration.uses ?? 1);
+                raw.duration.mode = String(raw.duration.mode ?? 'permanent');
+                raw.duration.countdownTicks = Number(raw.duration.countdownTicks ?? 3);
+                raw.duration.countdownTickOn = String(raw.duration.countdownTickOn ?? 'round_start');
+            }
             if (raw.condition) raw.condition.value       = Number(raw.condition.value       ?? 0);
+            if (raw.condition) raw.condition.rangeCount  = Number(raw.condition.rangeCount  ?? 1);
             if (raw.effect)    raw.effect.bonus            = Number(raw.effect.bonus            ?? 0);
             if (raw.effect)    raw.effect.rollBonus        = Number(raw.effect.rollBonus        ?? 0);
             if (raw.effect)    raw.effect.thresholdMajor   = Number(raw.effect.thresholdMajor   ?? 0);
             if (raw.effect)    raw.effect.thresholdSevere  = Number(raw.effect.thresholdSevere  ?? 0);
             if (raw.effect)    raw.effect.defenseBonus     = Number(raw.effect.defenseBonus     ?? 0);
             if (raw.effect)    raw.effect.damageMultiplier = Number(raw.effect.damageMultiplier ?? 2);
+            if (raw.effect)    raw.effect.proficiencyBonus = Number(raw.effect.proficiencyBonus ?? 1);
+            if (raw.effect)    raw.effect.stressAmount     = Number(raw.effect.stressAmount     ?? 1);
+
+            // Bug #6: Validate dice formula if provided
+            if (raw.effect?.dice?.trim()) {
+                try {
+                    const testRoll = new Roll(raw.effect.dice.trim());
+                    testRoll.evaluate({ async: false });
+                } catch (err) {
+                    ui.notifications.error(`Invalid dice formula: "${raw.effect.dice}". Use formats like "1d6", "2d4+1", etc.`);
+                    return;
+                }
+            }
+
+            // Bug #8: Warn if apply_status is combined with a non-permanent duration
+            if (raw.effect?.type === 'apply_status' && raw.duration?.mode && raw.duration.mode !== 'permanent') {
+                ui.notifications.warn('Note: "Apply Status" effects ignore duration — status is applied while condition is true and removed when false. Duration set to Permanent.');
+                raw.duration.mode = 'permanent';
+            }
+
             if (this.effectId) await updateEffect(this.effectId, raw);
             else await createEffect(raw);
             this._onSave?.();
@@ -508,12 +1029,18 @@ export class ConditionalEffectConfig extends HandlebarsApplicationMixin(Applicat
     _updateVisibility() {
         const condType = this.element.querySelector('[name="condition.type"]')?.value;
         const effType  = this.element.querySelector('[name="effect.type"]')?.value;
-        this._toggle('.dce-field-subject',             condType === 'status' || condType === 'attribute');
+        const durMode  = this.element.querySelector('[name="duration.mode"]')?.value;
+        this._toggle('.dce-field-subject',             condType === 'status' || condType === 'attribute' || condType === 'took_threshold' || condType === 'inflicted_threshold' || condType === 'rolled_fear' || condType === 'rolled_critical' || condType === 'spent_hope' || condType === 'armor_slot_marked' || condType === 'no_armor_remaining');
         this._toggle('.dce-field-status',              condType === 'status');
         this._toggle('.dce-field-attribute',           condType === 'attribute');
-        /**this._toggle('.dce-field-range',            condType === 'range');*/
+        this._toggle('.dce-field-range',               condType === 'range');
+        const rangeSubject = this.element.querySelector('[name="condition.rangeSubject"]')?.value;
+        this._toggle('.dce-field-range-count',         condType === 'range' && (rangeSubject === 'friends' || rangeSubject === 'enemies'));
         this._toggle('.dce-field-weapon-slot',         condType === 'weapon');
         this._toggle('.dce-field-incoming-damage-type', condType === 'damage_type');
+        this._toggle('.dce-field-threshold',           condType === 'took_threshold' || condType === 'inflicted_threshold');
+        this._toggle('.dce-field-duration-uses',       durMode === 'uses');
+        this._toggle('.dce-field-countdown',           durMode === 'countdown');
         this._toggle('.dce-field-damage-bonus',        effType  === 'damage_bonus');
         this._toggle('.dce-field-damage-multiplier',   effType  === 'damage_multiplier');
         this._toggle('.dce-field-damage-reduction',    effType  === 'damage_reduction');
@@ -521,6 +1048,9 @@ export class ConditionalEffectConfig extends HandlebarsApplicationMixin(Applicat
         this._toggle('.dce-field-status-on-hit',       effType  === 'status_on_hit');
         this._toggle('.dce-field-apply-status',        effType  === 'apply_status');
         this._toggle('.dce-field-roll-bonus',          effType  === 'roll_bonus');
+        this._toggle('.dce-field-roll-filters',        effType  === 'roll_bonus' || effType === 'advantage' || effType === 'disadvantage');
+        this._toggle('.dce-field-proficiency-bonus',   effType  === 'proficiency_bonus');
+        this._toggle('.dce-field-stress-on-hit',       effType  === 'stress_on_hit');
     }
 
     _toggle(selector, visible) {
@@ -528,3 +1058,277 @@ export class ConditionalEffectConfig extends HandlebarsApplicationMixin(Applicat
         if (el) el.classList.toggle('dce-hidden', !visible);
     }
 }
+
+// ─── Active Assignments Viewer ───────────────────────────────────────────────
+
+export class ActiveAssignmentsViewer extends HandlebarsApplicationMixin(ApplicationV2) {
+    static DEFAULT_OPTIONS = {
+        id: 'dce-assignments', classes: ['dce-assignments'],
+        window: { title: 'Active Assignments', icon: 'fas fa-diagram-project', resizable: true },
+        position: { width: 620, height: 520 },
+    };
+    static PARTS = { main: { template: `modules/${MODULE_ID}/templates/active-assignments.hbs` } };
+
+    /** @type {number[]} Hook IDs to unregister on close */
+    _hookIds = [];
+
+    _isSupportedActorType(actor) {
+        return actor?.type === 'character' || actor?.type === 'adversary';
+    }
+
+    _collectViewerActors() {
+        const actorsByUuid = new Map();
+        const pushActor = actor => {
+            if (!this._isSupportedActorType(actor)) return;
+            if (!actor?.uuid) return;
+            if (!actorsByUuid.has(actor.uuid)) actorsByUuid.set(actor.uuid, actor);
+        };
+
+        // World actors (linked documents)
+        for (const actor of game.actors ?? []) pushActor(actor);
+
+        // Active-scene token actors (captures unlinked/synthetic adversaries)
+        for (const tokenDoc of game.scenes.active?.tokens ?? []) {
+            pushActor(tokenDoc.actor);
+        }
+
+        return [...actorsByUuid.values()];
+    }
+
+    _resolveActorFromElement(el) {
+        const container = el?.closest('[data-actor-uuid]');
+        if (!container) return null;
+
+        const actorUuid = container.dataset.actorUuid;
+        if (actorUuid) {
+            try {
+                const actor = fromUuidSync(actorUuid);
+                if (actor) return actor;
+            } catch {
+                // Fall through to legacy ID lookup
+            }
+        }
+
+        const actorId = container.dataset.actorId;
+        return actorId ? game.actors.get(actorId) : null;
+    }
+
+    async _prepareContext(_options) {
+        const allEffects   = getAllEffects();
+        const effectMap    = new Map(allEffects.map(e => [e.id, e]));
+        const pcToggles    = new Set(getPcToggles());
+        const npcToggles   = new Set(getNpcToggles());
+        const sceneDisabled = new Set(getSceneDisabled());
+
+        const actors = [];
+
+        for (const actor of this._collectViewerActors()) {
+            const sources = [];
+
+            // 1. Scene-wide toggles
+            const sceneToggles = actor.type === 'character' ? pcToggles : npcToggles;
+            const toggleLabel  = actor.type === 'character' ? 'PCs' : 'Foes';
+            for (const effectId of sceneToggles) {
+                const e = effectMap.get(effectId);
+                if (!e) continue;
+                sources.push(this._buildSourceRow(e, {
+                    sourceType:  'scene',
+                    sourceId:    'scene',
+                    sourceIcon:  'fa-map',
+                    sourceLabel: `Scene Override (${toggleLabel})`,
+                    sourceTooltip: `Applied via Scene Overrides → ${toggleLabel}`,
+                    sourceClickable: false,
+                    sceneDisabled: sceneDisabled.has(effectId),
+                }));
+            }
+
+            // 2. Item-assigned effects
+            for (const item of actor.items) {
+                if (!APPLICABLE_ITEM_TYPES.includes(item.type)) continue;
+                const ids = item.getFlag(MODULE_ID, FLAG_ASSIGNED) ?? [];
+                for (const effectId of ids) {
+                    const e = effectMap.get(effectId);
+                    if (!e) continue;
+                    const itemActive = this._isItemActive(item);
+                    const typeLabel  = this._itemTypeLabel(item.type);
+                    const activeTag  = itemActive ? '' : ', unequipped';
+                    sources.push(this._buildSourceRow(e, {
+                        sourceType:  'item',
+                        sourceId:    item.id,
+                        sourceIcon:  this._itemTypeIcon(item.type),
+                        sourceLabel: `${item.name} (${typeLabel}${activeTag})`,
+                        sourceTooltip: `Assigned to ${typeLabel}: "${item.name}"${activeTag}`,
+                        sourceClickable: true,
+                        sceneDisabled: sceneDisabled.has(effectId),
+                    }));
+                }
+            }
+
+            // 3. Actor-level (direct) assignments
+            const actorIds = actor.getFlag(MODULE_ID, FLAG_ACTOR) ?? [];
+            for (const effectId of actorIds) {
+                const e = effectMap.get(effectId);
+                if (!e) continue;
+                sources.push(this._buildSourceRow(e, {
+                    sourceType:  'actor',
+                    sourceId:    actor.id,
+                    sourceIcon:  'fa-user',
+                    sourceLabel: 'Actor (direct)',
+                    sourceTooltip: 'Assigned directly to actor',
+                    sourceClickable: false,
+                    sceneDisabled: sceneDisabled.has(effectId),
+                }));
+            }
+
+            if (sources.length === 0) continue;
+
+            actors.push({
+                actorId:      actor.id,
+                actorUuid:    actor.uuid,
+                name:         actor.name,
+                typeLabel:    actor.type === 'character' ? 'Character' : 'Adversary',
+                actorIcon:    actor.type === 'character' ? 'fa-user' : 'fa-skull',
+                effectCount:  sources.length,
+                singleEffect: sources.length === 1,
+                sources,
+            });
+        }
+
+        // Sort: characters first, then adversaries, alphabetical within each
+        actors.sort((a, b) => {
+            if (a.typeLabel !== b.typeLabel) return a.typeLabel === 'Character' ? -1 : 1;
+            return a.name.localeCompare(b.name);
+        });
+
+        return { actors, isEmpty: actors.length === 0 };
+    }
+
+    _buildSourceRow(effect, source) {
+        return {
+            effectId:         effect.id,
+            effectName:       effect.name,
+            conditionSummary: summarizeCondition(effect.condition),
+            effectSummary:    summarizeEffect(effect.effect),
+            beneficialIcon:   effect.beneficial ? 'fa-shield-heart dce-beneficial' : 'fa-skull-crossbones dce-detrimental',
+            ...source,
+        };
+    }
+
+    _isItemActive(item) {
+        switch (item.type) {
+            case 'weapon':
+            case 'armor':      return item.system.equipped === true;
+            case 'domainCard': return item.system.inVault === false;
+            case 'feature':    return true;
+            default:           return false;
+        }
+    }
+
+    _itemTypeLabel(type) {
+        switch (type) {
+            case 'weapon':     return 'Weapon';
+            case 'armor':      return 'Armor';
+            case 'domainCard': return 'Domain Card';
+            case 'feature':    return 'Feature';
+            default:           return type;
+        }
+    }
+
+    _itemTypeIcon(type) {
+        switch (type) {
+            case 'weapon':     return 'fa-sword';
+            case 'armor':      return 'fa-shield-halved';
+            case 'domainCard': return 'fa-scroll';
+            case 'feature':    return 'fa-star';
+            default:           return 'fa-cube';
+        }
+    }
+
+    _onRender(_context, _options) {
+        const el = this.element;
+
+        // Open actor sheet
+        el.querySelectorAll('[data-action="openActorSheet"]').forEach(btn => {
+            btn.addEventListener('click', () => {
+                const actor = this._resolveActorFromElement(btn);
+                actor?.sheet.render(true);
+            });
+        });
+
+        // Open source item sheet
+        el.querySelectorAll('[data-action="openSourceSheet"]').forEach(btn => {
+            btn.addEventListener('click', () => {
+                const row     = btn.closest('.dce-assignments-row');
+                const itemId  = row?.dataset.sourceId;
+                if (!itemId) return;
+                const actor = this._resolveActorFromElement(btn);
+                const item  = actor?.items.get(itemId);
+                item?.sheet.render(true);
+            });
+        });
+
+        // Remove assignment
+        el.querySelectorAll('[data-action="removeAssignment"]').forEach(btn => {
+            btn.addEventListener('click', async () => {
+                const row        = btn.closest('.dce-assignments-row');
+                const effectId   = row?.dataset.effectId;
+                const sourceType = row?.dataset.sourceType;
+                const sourceId   = row?.dataset.sourceId;
+                const actor      = this._resolveActorFromElement(btn);
+                if (!effectId || !sourceType) return;
+
+                if (sourceType === 'scene') {
+                    // Determine if PCs or Foes by checking which set has it
+                    if (pcToggles_has(effectId))  await setPcToggle(effectId, false);
+                    if (npcToggles_has(effectId)) await setNpcToggle(effectId, false);
+                } else if (sourceType === 'item') {
+                    const item  = actor?.items.get(sourceId);
+                    if (item) {
+                        const updated = (item.getFlag(MODULE_ID, FLAG_ASSIGNED) ?? []).filter(id => id !== effectId);
+                        await item.setFlag(MODULE_ID, FLAG_ASSIGNED, updated);
+                    }
+                } else if (sourceType === 'actor') {
+                    if (actor) {
+                        const updated = (actor.getFlag(MODULE_ID, FLAG_ACTOR) ?? []).filter(id => id !== effectId);
+                        await actor.setFlag(MODULE_ID, FLAG_ACTOR, updated);
+                    }
+                }
+
+                this.render();
+            });
+        });
+
+        // Register live-update hooks
+        this._registerRefreshHooks();
+    }
+
+    _registerRefreshHooks() {
+        // Clear any previous hooks (in case of re-render)
+        this._unregisterRefreshHooks();
+
+        const refresh = foundry.utils.debounce(() => {
+            if (this.rendered) this.render();
+        }, 250);
+
+        this._hookIds.push(Hooks.on('updateActor', refresh));
+        this._hookIds.push(Hooks.on('updateItem', refresh));
+        this._hookIds.push(Hooks.on('updateToken', refresh));
+        this._hookIds.push(Hooks.on('updateScene', refresh));
+        this._hookIds.push(Hooks.on('createItem', refresh));
+        this._hookIds.push(Hooks.on('deleteItem', refresh));
+    }
+
+    _unregisterRefreshHooks() {
+        for (const id of this._hookIds) Hooks.off(id);
+        this._hookIds = [];
+    }
+
+    close(options) {
+        this._unregisterRefreshHooks();
+        return super.close(options);
+    }
+}
+
+// Helpers for scene toggle checks (avoid importing mutable state)
+function pcToggles_has(effectId) { return getPcToggles().includes(effectId); }
+function npcToggles_has(effectId) { return getNpcToggles().includes(effectId); }

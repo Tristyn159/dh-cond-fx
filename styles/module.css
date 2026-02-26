@@ -9,6 +9,12 @@
   white-space: nowrap; text-transform: capitalize;
 }
 
+.dce-help {
+  margin: 6px 0 0;
+  font-size: 0.82em;
+  color: var(--color-text-dark-secondary, #666);
+}
+
 .dce-beneficial   { color: #3a9a6e; }
 .dce-detrimental  { color: #c04040; }
 .dce-on           { color: #3a9a6e; }
@@ -80,7 +86,7 @@
 }
 .dce-override-row {
   display: grid;
-  grid-template-columns: 1fr 190px 160px 160px;
+  grid-template-columns: 1fr 180px 160px 155px;
   align-items: center; gap: 8px; padding: 6px 14px;
   border-bottom: 1px solid var(--color-border-light-1, #eee);
 }
@@ -143,7 +149,8 @@
 .dce-override-btn:hover { filter: brightness(0.95); }
 .dce-override-btn.active-override-on  { background: rgba(58,154,110,0.15); border-color: #3a9a6e; color: #3a9a6e; font-weight: 600; }
 .dce-override-btn.active-override-off { background: rgba(192,64,64,0.12); border-color: #c04040; color: #c04040; font-weight: 600; }
-.dce-override-btn.active-override-pc { background: rgba(74, 111, 165, 0.15); border-color: #4a6fa5; color: #4a6fa5; font-weight: 600; }
+.dce-override-btn.active-override-pc  { background: rgba(74, 111, 165, 0.15); border-color: #4a6fa5; color: #4a6fa5; font-weight: 600; }
+.dce-override-btn.active-override-npc { background: rgba(165, 100, 50, 0.15); border-color: #a56432; color: #a56432; font-weight: 600; }
 .dce-override-badge { font-size: 0.75em; padding: 1px 5px; border-radius: 3px; font-weight: 600; }
 
 /* ── Effect Config form ──────────────────────────────────────────────────── */
@@ -194,10 +201,28 @@
 .dce-polarity-btn.active-detrimental { background: rgba(192,64,64,0.10); border-color: #c04040; color: #c04040; font-weight: 600; }
 
 /* ── Item sheet section ──────────────────────────────────────────────────── */
+
+/* The default DH and DH+ sidebars use a flex column whose children all have
+   flex-shrink:1.  The sidebar height is fixed, so flex shrinks children to fit,
+   clipping our section at the bottom.  Fix:
+   1. sidebar: overflow-y auto so it scrolls when content exceeds its height
+   2. ALL direct children: flex-shrink 0 so they keep their natural height and
+      actually *cause* the overflow the sidebar can then scroll.               */
+.dh-style aside:has(.dce-actor-section),
+.daggerheart-plus aside:has(.dce-actor-section) {
+  overflow-y: auto !important;
+}
+.dh-style aside:has(.dce-actor-section) > *,
+.daggerheart-plus aside:has(.dce-actor-section) > * {
+  flex-shrink: 0 !important;
+}
+
 .dce-item-section, .dce-actor-section {
-  margin: 14px 8px 4px;
+  margin: 10px 8px 4px;
   border: 1px solid var(--color-border-light, #ccc);
   border-radius: 5px; overflow: hidden;
+  /* Stay within the sidebar — never force the parent wider */
+  width: calc(100% - 16px); box-sizing: border-box; min-width: 0;
 }
 .dce-item-section-title {
   font-size: 0.82em; font-weight: bold;
@@ -207,23 +232,33 @@
   border-bottom: 1px solid var(--color-border-light, #ccc);
   color: var(--color-text-dark-secondary, #666);
   display: flex; align-items: center; gap: 6px;
+  /* Title should truncate, not push the section wider */
+  min-width: 0; overflow: hidden;
 }
 .dce-section-hint {
   font-size: 0.8em; font-weight: normal; text-transform: none;
   letter-spacing: 0; color: var(--color-text-dark-inactive, #aaa);
-  margin-left: auto;
+  margin-left: auto; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
-.dce-assigned-list { display: flex; flex-direction: column; }
+.dce-assigned-list { display: flex; flex-direction: column; min-width: 0; }
 .dce-assigned-row {
   display: flex; align-items: center; gap: 7px;
   font-size: 0.84em; padding: 4px 10px;
   border-bottom: 1px solid var(--color-border-light-1, #eee);
   background: var(--color-bg-option, #faf8f2);
+  /* Critical: allow flex children to shrink below their content size */
+  min-width: 0; overflow: hidden;
 }
 .dce-assigned-row:last-child { border-bottom: none; }
-.dce-assigned-name  { font-weight: 600; min-width: 100px; white-space: nowrap; }
+.dce-assigned-name  {
+  font-weight: 600; white-space: nowrap;
+  overflow: hidden; text-overflow: ellipsis;
+  /* No fixed min-width — let the row constrain it */
+  min-width: 0; flex-shrink: 1;
+}
 .dce-assigned-summary {
-  flex: 1; color: var(--color-text-dark-inactive, #888); font-size: 0.9em;
+  flex: 1; min-width: 0;
+  color: var(--color-text-dark-inactive, #888); font-size: 0.9em;
   overflow: hidden; white-space: nowrap; text-overflow: ellipsis;
 }
 .dce-remove-effect, .dce-remove-actor-effect {
@@ -235,8 +270,8 @@
 
 .dce-drop-zone {
   border: 2px dashed var(--color-border-light, #ccc);
-  margin: 6px; border-radius: 4px; padding: 8px 10px;
-  text-align: center; font-size: 0.81em;
+  margin: 4px 6px; border-radius: 4px; padding: 5px 8px;
+  text-align: center; font-size: 0.78em;
   color: var(--color-text-dark-inactive, #aaa);
   transition: border-color 0.15s, background 0.15s, color 0.15s;
 }
@@ -301,3 +336,227 @@
   border-color: var(--color-text-dark-secondary, #888);
   color: var(--color-text-dark-primary, #222);
 }
+
+/* ── Presets Tab ────────────────────────────────────────────────────────── */
+.dce-presets-list { flex: 1; overflow-y: auto; padding: 8px 14px; }
+
+.dce-preset-category { margin-bottom: 16px; }
+.dce-preset-category:last-child { margin-bottom: 0; }
+
+.dce-preset-category-title {
+  font-size: 0.82em; font-weight: 700;
+  text-transform: uppercase; letter-spacing: 0.04em;
+  color: #5f574a;
+  margin: 0 0 6px; padding: 0 0 4px;
+  border-bottom: 1px solid var(--color-border-light, #d0c9bc);
+  display: flex; align-items: center; gap: 6px;
+}
+
+.dce-preset-grid { display: flex; flex-direction: column; gap: 4px; }
+
+.dce-preset-card {
+  display: flex; align-items: center; gap: 10px;
+  padding: 6px 10px; border-radius: 4px;
+  border: 1px solid var(--color-border-light-1, #eee);
+  background: var(--color-bg-option, #faf8f2);
+  color: #2f2a21;
+  transition: all 0.15s; cursor: default;
+}
+.dce-preset-card:hover {
+  background: var(--color-bg-btn-subtle, #f7f3e9);
+  border-color: var(--color-border-light, #ccc);
+  color: #211c15;
+}
+
+.dce-preset-icon {
+  flex-shrink: 0; width: 28px; height: 28px;
+  display: flex; align-items: center; justify-content: center;
+  border-radius: 50%;
+  background: rgba(94, 123, 76, 0.1);
+  color: #5e7b4c; font-size: 0.85em;
+}
+
+.dce-preset-info {
+  flex: 1; display: flex; flex-direction: column; gap: 1px;
+  overflow: hidden; min-width: 0;
+}
+.dce-preset-name {
+  font-weight: 600; font-size: 0.88em;
+  color: #2f2a21;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.dce-preset-desc {
+  font-size: 0.78em; color: #5f584c;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+
+.dce-preset-add {
+  flex-shrink: 0; padding: 4px 10px;
+  background: var(--color-bg-btn, #5e7b4c); color: #fff;
+  border: none; border-radius: 3px; cursor: pointer;
+  font-size: 0.82em; transition: filter 0.15s;
+  display: flex; align-items: center; gap: 4px;
+}
+.dce-preset-add:hover { filter: brightness(1.18); }
+
+/* ── Debug Dialog ──────────────────────────────────────────────────────── */
+.dce-debug-dialog .window-content { padding: 0; }
+
+/* ── Daggerheart dark-theme overrides ─────────────────────────────────── */
+/* All three supported sheet styles (default/dh-style, daggerheart+,       */
+/* sleek-ui) use dark backgrounds.  Override light-theme fallbacks so the  */
+/* conditional effects sections on character/item/adversary sheets are     */
+/* legible against dark backgrounds.                                       */
+/* Selector: .dh-style = default, .daggerheart-plus = DH+, .sleek-ui      */
+
+.dh-style .dce-item-section,       .dh-style .dce-actor-section,
+.daggerheart-plus .dce-item-section, .daggerheart-plus .dce-actor-section,
+.sleek-ui .dce-item-section,        .sleek-ui .dce-actor-section {
+  border-color: rgba(200, 168, 75, 0.3);
+}
+
+.dh-style .dce-item-section-title,
+.daggerheart-plus .dce-item-section-title,
+.sleek-ui .dce-item-section-title {
+  background: rgba(200, 168, 75, 0.15);
+  border-bottom-color: rgba(200, 168, 75, 0.25);
+  color: #c8a84b;
+}
+
+.dh-style .dce-section-hint,
+.daggerheart-plus .dce-section-hint,
+.sleek-ui .dce-section-hint {
+  color: rgba(239, 230, 216, 0.55);
+}
+
+.dh-style .dce-assigned-row,
+.daggerheart-plus .dce-assigned-row,
+.sleek-ui .dce-assigned-row {
+  background: rgba(255, 255, 255, 0.04);
+  border-bottom-color: rgba(255, 255, 255, 0.08);
+}
+
+.dh-style .dce-assigned-name,
+.daggerheart-plus .dce-assigned-name,
+.sleek-ui .dce-assigned-name {
+  color: #efe6d8;
+}
+
+.dh-style .dce-assigned-summary,
+.daggerheart-plus .dce-assigned-summary,
+.sleek-ui .dce-assigned-summary {
+  color: rgba(239, 230, 216, 0.6);
+}
+
+.dh-style .dce-remove-effect,        .dh-style .dce-remove-actor-effect,
+.daggerheart-plus .dce-remove-effect, .daggerheart-plus .dce-remove-actor-effect,
+.sleek-ui .dce-remove-effect,         .sleek-ui .dce-remove-actor-effect {
+  color: rgba(239, 230, 216, 0.35);
+}
+.dh-style .dce-remove-effect:hover,        .dh-style .dce-remove-actor-effect:hover,
+.daggerheart-plus .dce-remove-effect:hover, .daggerheart-plus .dce-remove-actor-effect:hover,
+.sleek-ui .dce-remove-effect:hover,         .sleek-ui .dce-remove-actor-effect:hover {
+  color: #e06060;
+  background: rgba(224, 96, 96, 0.12);
+}
+
+.dh-style .dce-drop-zone,
+.daggerheart-plus .dce-drop-zone,
+.sleek-ui .dce-drop-zone {
+  border-color: rgba(200, 168, 75, 0.25);
+  color: rgba(239, 230, 216, 0.45);
+}
+.dh-style .dce-drop-zone.dce-drag-over,
+.daggerheart-plus .dce-drop-zone.dce-drag-over,
+.sleek-ui .dce-drop-zone.dce-drag-over {
+  border-color: #c8a84b;
+  background: rgba(200, 168, 75, 0.08);
+  color: #c8a84b;
+}
+
+/* Header/row effect indicators in dark theme */
+.dh-style .dce-header-indicator,
+.daggerheart-plus .dce-header-indicator,
+.sleek-ui .dce-header-indicator { color: #c8a84b; }
+
+.dh-style .dce-item-row-indicator,
+.daggerheart-plus .dce-item-row-indicator,
+.sleek-ui .dce-item-row-indicator { color: #c8a84b; }
+
+/* ── Active Assignments Viewer ─────────────────────────────────────────────── */
+.dce-assignments .window-content { padding: 0; }
+.dce-assignments-wrap { display: flex; flex-direction: column; height: 100%; overflow: hidden; }
+
+.dce-assignments-hint {
+  padding: 7px 12px; margin: 0; font-size: 0.82em;
+  color: var(--color-text-dark-secondary, #666);
+  background: var(--color-bg-header, #f5f0e8);
+  border-bottom: 1px solid var(--color-border-light, #ccc);
+  display: flex; align-items: center; gap: 6px;
+  flex-shrink: 0;
+}
+
+.dce-assignments-list { flex: 1; overflow-y: auto; padding: 6px 0; }
+
+.dce-assignments-actor { margin-bottom: 2px; }
+
+.dce-assignments-actor-header {
+  display: flex; align-items: center; gap: 8px;
+  padding: 6px 14px;
+  background: var(--color-bg-header, #f0ead8);
+  border-bottom: 1px solid var(--color-border-light, #ccc);
+  border-top: 1px solid var(--color-border-light, #ccc);
+  font-weight: 600; font-size: 0.9em;
+  position: sticky; top: 0; z-index: 1;
+}
+.dce-assignments-actor-header i { color: var(--color-text-dark-secondary, #666); }
+.dce-assignments-actor-name {
+  cursor: pointer; color: var(--color-text-dark-primary, #333);
+  transition: color 0.1s;
+}
+.dce-assignments-actor-name:hover { color: #5e7b4c; text-decoration: underline; }
+.dce-assignments-count {
+  margin-left: auto; font-weight: normal; font-size: 0.82em;
+  color: var(--color-text-dark-inactive, #999);
+}
+
+.dce-assignments-effects { display: flex; flex-direction: column; }
+
+.dce-assignments-row {
+  display: grid;
+  grid-template-columns: 22px 1fr 1fr 28px;
+  align-items: center; gap: 8px;
+  padding: 4px 14px 4px 24px;
+  border-bottom: 1px solid var(--color-border-light-1, #eee);
+  font-size: 0.84em;
+  transition: background 0.1s;
+}
+.dce-assignments-row:hover { background: var(--color-bg-btn-subtle, #f7f3e9); }
+.dce-assignments-row:last-child { border-bottom: none; }
+
+.dce-assignments-effect-icon { text-align: center; }
+.dce-assignments-effect-name {
+  font-weight: 600; white-space: nowrap;
+  overflow: hidden; text-overflow: ellipsis;
+}
+
+.dce-assignments-source {
+  display: flex; align-items: center; gap: 5px;
+  color: var(--color-text-dark-inactive, #888);
+  font-size: 0.92em; overflow: hidden;
+}
+.dce-assignments-source i { flex-shrink: 0; width: 14px; text-align: center; }
+.dce-assignments-source-label {
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.dce-assignments-link {
+  cursor: pointer; transition: color 0.1s;
+}
+.dce-assignments-link:hover { color: #5e7b4c; text-decoration: underline; }
+
+.dce-assignments-remove {
+  background: none; border: none; cursor: pointer; padding: 2px 5px;
+  color: var(--color-text-dark-inactive, #ccc); border-radius: 3px;
+  transition: color 0.1s, background 0.1s;
+}
+.dce-assignments-remove:hover { color: #c04040; background: rgba(192,64,64,0.08); }
