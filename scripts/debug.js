@@ -18,6 +18,8 @@ export const DEBUG_SETTINGS_KEY = 'debug';
 
 export const DEBUG_CATEGORIES = {
     CORE:          'core',
+    HOOKS:         'hooks',
+    CONDITIONS:    'conditions',
     THRESHOLDS:    'thresholds',
     EVASION_AE:    'evasionAE',
     STATUS_AE:     'statusAE',
@@ -26,12 +28,14 @@ export const DEBUG_CATEGORIES = {
 };
 
 const _CATEGORY_META = [
-    { key: DEBUG_CATEGORIES.CORE,          label: 'Core',                  hint: 'Startup/registration and general lifecycle messages.' },
-    { key: DEBUG_CATEGORIES.THRESHOLDS,    label: 'Damage Thresholds',     hint: 'Damage threshold bonuses applied during derived data.' },
-    { key: DEBUG_CATEGORIES.EVASION_AE,    label: 'Evasion ActiveEffects', hint: 'Creation/deletion of evasion-bonus ActiveEffects.' },
-    { key: DEBUG_CATEGORIES.STATUS_AE,     label: 'Status ActiveEffects',  hint: 'Creation/deletion of persistent status ActiveEffects.' },
-    { key: DEBUG_CATEGORIES.DAMAGE,        label: 'Damage Math',           hint: 'Damage bonus formulas and incoming damage multipliers.' },
-    { key: DEBUG_CATEGORIES.STATUS_ON_HIT, label: 'Status On Hit',         hint: 'Applying status effects to targets after damage.' },
+    { key: DEBUG_CATEGORIES.CORE,          label: 'Core',                  hint: 'Startup, registration, lifecycle, effect retrieval, proficiency AE sync, duration tracking, and chained effects.' },
+    { key: DEBUG_CATEGORIES.HOOKS,         label: 'Hooks & Rolls',         hint: 'When roll hooks fire, who is rolling, targets, effect lookups, roll modifications (advantage, bonus), trait/action filters, and attacker AE sync triggers.' },
+    { key: DEBUG_CATEGORIES.CONDITIONS,    label: 'Condition Evaluation',  hint: 'Every condition check: range/distance calculations, status checks, attribute comparisons, weapon slots, triggers (fear/crit/hope/armor), and pass/fail results.' },
+    { key: DEBUG_CATEGORIES.THRESHOLDS,    label: 'Damage Thresholds',     hint: 'Damage threshold AE sync: per-effect condition evaluation, desired vs existing AEs, what gets created/deleted and why.' },
+    { key: DEBUG_CATEGORIES.EVASION_AE,    label: 'Evasion ActiveEffects', hint: 'Evasion/difficulty AE sync: per-effect condition evaluation, desired vs existing AEs, create/delete details, and post-roll duration consumption.' },
+    { key: DEBUG_CATEGORIES.STATUS_AE,     label: 'Status ActiveEffects',  hint: 'Persistent status AE sync: per-effect condition evaluation, which statuses are applied/removed and why.' },
+    { key: DEBUG_CATEGORIES.DAMAGE,        label: 'Damage Math',           hint: 'Damage bonus formulas, incoming damage multipliers, damage type matching, threshold triggers (took/inflicted), and per-effect pass/fail.' },
+    { key: DEBUG_CATEGORIES.STATUS_ON_HIT, label: 'Status On Hit',         hint: 'Applying status effects and stress to targets after damage lands, per-effect condition evaluation and trigger results.' },
 ];
 
 // ── CONFIG.debug key helpers ──────────────────────────────────────────────────

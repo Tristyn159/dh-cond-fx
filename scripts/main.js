@@ -83,6 +83,17 @@ Hooks.once('ready', async () => {
 
 // ─── Evaluator ────────────────────────────────────────────────────────────────
 
+/** Resolve applyTo from new field or legacy beneficial boolean */
+function _getApplyTo(ce) {
+    if (ce.effect?.applyTo) return ce.effect.applyTo;
+    // Legacy migration: derive from old beneficial field.
+    // For AE-backed types (defense_bonus, damage_reduction, proficiency_bonus),
+    // the detrimental path was never functional, so always default to 'self'.
+    const aeTypes = ['defense_bonus', 'damage_reduction', 'proficiency_bonus'];
+    if (aeTypes.includes(ce.effect?.type)) return 'self';
+    return ce.beneficial !== false ? 'self' : 'incoming';
+}
+
 function _getActorConditionalEffects(actor) {
     if (!actor) return [];
     const allEffects = getAllEffects();
@@ -115,12 +126,18 @@ function _getActorConditionalEffects(actor) {
     const actorIds = actor.getFlag(MODULE_ID, FLAG_ACTOR) ?? [];
     actorIds.forEach(id => assignedIds.add(id));
 
-    if (assignedIds.size === 0) return [];
+    if (assignedIds.size === 0) {
+        logDebug(DEBUG_CATEGORIES.CORE, `  [effects] ${actor.name}: 0 assigned IDs → returning []`);
+        return [];
+    }
 
     // Filter: must be assigned, must be globally enabled, must NOT be scene-disabled
-    return allEffects.filter(e =>
+    const result = allEffects.filter(e =>
         assignedIds.has(e.id) && e.enabled && !sceneDisabled.has(e.id)
     );
+
+    logDebug(DEBUG_CATEGORIES.CORE, `  [effects] ${actor.name}: ${assignedIds.size} assigned IDs, ${result.length} active after enabled/scene filter [${result.map(e => `"${e.name}" (${e.effect.type})`).join(', ')}]`);
+    return result;
 }
 
 // ─── Duration / Trigger helpers ─────────────────────────────────────────────
@@ -239,8 +256,8 @@ async function _resetExhaustedDurationStateForAeType(actor, effectType, inScopeE
             continue;
         }
 
-        // Only reset the relevant AE-backed type here.
-        if (!(def.beneficial && def.effect?.type === effectType)) continue;
+        // Only reset the relevant AE-backed type here (self-applied AE effects).
+        if (!(def.effect?.type === effectType && _getApplyTo(def) === 'self')) continue;
 
         const inScope = inScopeEffectIds.has(effectId);
         if (!inScope) {
@@ -308,8 +325,8 @@ async function _resetExhaustedDurationOnConditionRestore(actor, effectType, cond
         const def = effectsById.get(effectId);
         if (!def) continue;
 
-        // Only handle the relevant AE-backed type.
-        if (!(def.beneficial && def.effect?.type === effectType)) continue;
+        // Only handle the relevant AE-backed type (self-applied AE effects).
+        if (!(def.effect?.type === effectType && _getApplyTo(def) === 'self')) continue;
 
         const conditionNow = conditionById.get(effectId);
         if (conditionNow !== true) continue; // Only care if condition is currently true
@@ -633,7 +650,7 @@ function _consumeTriggerIfNeeded(actor, effect) {
 const _evasionSyncPending = new Set();
 const _evasionSyncDirty = new Set();
 
-async function _syncEvasionActiveEffects(actor) {
+async function _syncEvasionActiveEffects(actor, { attackerOverride = null } = {}) {
     if (!actor?.id || !actor.isOwner) return;
     // Characters have 'evasion', adversaries have 'difficulty' — both represent the defense target
     const hasEvasion    = 'evasion'    in (actor.system ?? {});
@@ -656,18 +673,30 @@ async function _syncEvasionActiveEffects(actor) {
             await Promise.resolve();
 
             try {
+                logDebug(DEBUG_CATEGORIES.EVASION_AE, `── Evasion sync ── ${actor.name} (${defenseLabel}, key=${defenseKey}, attackerOverride=${attackerOverride?.name ?? 'none'})`);
+
                 const condEffects = _getActorConditionalEffects(actor);
-                const evasionEffects = condEffects.filter(ce =>
-                    ce.beneficial && ce.effect.type === 'defense_bonus'
-                );
+                // Include both 'self' and 'incoming' — for AE-backed effects the AE
+                // always goes on the actor.  'incoming' + rangeSubject 'attacker'
+                // means "when attacked from within range, boost my evasion".
+                const evasionEffects = condEffects.filter(ce => {
+                    if (ce.effect.type !== 'defense_bonus') return false;
+                    const at = _getApplyTo(ce);
+                    return at === 'self' || at === 'incoming';
+                });
+
+                logDebug(DEBUG_CATEGORIES.EVASION_AE, `  ${evasionEffects.length} defense_bonus effect(s) found: [${evasionEffects.map(ce => `"${ce.name}" (applyTo=${_getApplyTo(ce)}, bonus=${ce.effect.defenseBonus ?? 0}, rangeSubject=${ce.condition?.rangeSubject ?? 'N/A'})`).join(', ')}]`);
 
                 const evasionInScopeIds = new Set(evasionEffects.map(ce => ce.id));
                 const evasionConditionById = new Map();
                 for (const ce of evasionEffects) {
-                    evasionConditionById.set(
-                        ce.id,
-                        _evaluateCondition(ce.condition, { self: actor, target: null, action: null })
-                    );
+                    // When attackerOverride is provided (hook-time), effects with
+                    // rangeSubject 'attacker' can evaluate against the real attacker.
+                    const condTarget = (ce.condition?.rangeSubject === 'attacker' && attackerOverride)
+                        ? attackerOverride : null;
+                    const condResult = _evaluateCondition(ce.condition, { self: actor, target: condTarget, action: null });
+                    evasionConditionById.set(ce.id, condResult);
+                    logDebug(DEBUG_CATEGORIES.EVASION_AE, `  Condition for "${ce.name}": ${condResult ? 'MET' : 'NOT MET'} (type=${ce.condition?.type ?? 'always'}, condTarget=${condTarget?.name ?? 'none'})`);
                 }
 
                 // Find existing dce evasion AEs on this actor FIRST (before reset checks)
@@ -676,6 +705,7 @@ async function _syncEvasionActiveEffects(actor) {
                     ae.getFlag(MODULE_ID, 'evasionAE') === true
                 );
                 const existingSourceIds = new Set(existing.map(ae => ae.getFlag(MODULE_ID, 'sourceEffectId')));
+                logDebug(DEBUG_CATEGORIES.EVASION_AE, `  Existing AEs on actor: ${existing.length} [${existing.map(ae => `"${ae.name}" (src=${ae.getFlag(MODULE_ID, 'sourceEffectId')}, val=${ae.changes?.[0]?.value ?? '?'})`).join(', ')}]`);
 
                 // Check for condition transitions (false -> true) and reset exhausted duration
                 await _resetExhaustedDurationOnConditionRestore(actor, 'defense_bonus', evasionConditionById, existingSourceIds);
@@ -690,11 +720,21 @@ async function _syncEvasionActiveEffects(actor) {
                 // Build the set of condEffect IDs that should have an AE right now.
                 const desired = new Map(); // condEffectId -> bonus value
                 for (const ce of evasionEffects) {
-                    if (!_canApplyByDuration(actor, ce)) continue;
-                    if (!evasionConditionById.get(ce.id)) continue;
+                    if (!_canApplyByDuration(actor, ce)) {
+                        logDebug(DEBUG_CATEGORIES.EVASION_AE, `  "${ce.name}": SKIP (duration exhausted/blocked)`);
+                        continue;
+                    }
+                    if (!evasionConditionById.get(ce.id)) {
+                        logDebug(DEBUG_CATEGORIES.EVASION_AE, `  "${ce.name}": SKIP (condition not met)`);
+                        continue;
+                    }
                     const bonus = Number(ce.effect.defenseBonus ?? 0);
-                    if (!bonus) continue;
+                    if (!bonus) {
+                        logDebug(DEBUG_CATEGORIES.EVASION_AE, `  "${ce.name}": SKIP (bonus is 0)`);
+                        continue;
+                    }
                     desired.set(ce.id, { bonus, name: ce.name });
+                    logDebug(DEBUG_CATEGORIES.EVASION_AE, `  "${ce.name}": DESIRED (bonus=${bonus > 0 ? '+' : ''}${bonus})`);
                 }
 
                 const toDelete = [];
@@ -708,21 +748,26 @@ async function _syncEvasionActiveEffects(actor) {
                         const currentBonus = Number(ae.changes?.[0]?.value ?? 0);
                         if (currentBonus !== expectedBonus) {
                             // Value changed — delete and recreate.
+                            logDebug(DEBUG_CATEGORIES.EVASION_AE, `  AE "${ae.name}": value changed (${currentBonus} → ${expectedBonus}), will recreate`);
                             toDelete.push(ae.id);
                         } else {
                             // Already correct — don't recreate.
+                            logDebug(DEBUG_CATEGORIES.EVASION_AE, `  AE "${ae.name}": already correct (${currentBonus}), keeping`);
                             toCreate.delete(sourceId);
                         }
                     } else {
                         // AE exists but condition no longer met — delete.
+                        logDebug(DEBUG_CATEGORIES.EVASION_AE, `  AE "${ae.name}": no longer desired, will delete`);
                         toDelete.push(ae.id);
                     }
                 }
 
+                logDebug(DEBUG_CATEGORIES.EVASION_AE, `  Summary: ${toDelete.length} to delete, ${toCreate.size} to create`);
+
                 if (toDelete.length) {
                     try {
                         await actor.deleteEmbeddedDocuments('ActiveEffect', toDelete);
-                        logDebug(DEBUG_CATEGORIES.EVASION_AE, `Deleted ${toDelete.length} ${defenseLabel.toLowerCase()} AE(s) from ${actor.name}`);
+                        logDebug(DEBUG_CATEGORIES.EVASION_AE, `  ✓ Deleted ${toDelete.length} ${defenseLabel.toLowerCase()} AE(s) from ${actor.name}`);
                     } catch (err) {
                         const msg = String(err?.message ?? err);
                         if (msg.includes('does not exist')) {
@@ -741,6 +786,7 @@ async function _syncEvasionActiveEffects(actor) {
                 if (toCreate.size) {
                     const aeData = [];
                     for (const [sourceId, { bonus, name }] of toCreate) {
+                        logDebug(DEBUG_CATEGORIES.EVASION_AE, `  Creating AE: "${name}" → ${defenseKey} ${bonus > 0 ? '+' : ''}${bonus}`);
                         aeData.push({
                             name: `${name} (${defenseLabel})`,
                             img: 'icons/magic/defensive/shield-barrier-blue.webp',
@@ -757,7 +803,7 @@ async function _syncEvasionActiveEffects(actor) {
                                 value: String(bonus),
                             }],
                         });
-                        
+
                         // Track combat ID for end_of_combat effects
                         const ce = evasionEffects.find(e => e.id === sourceId);
                         if (ce?.duration?.mode === 'end_of_combat' && game.combat) {
@@ -765,7 +811,7 @@ async function _syncEvasionActiveEffects(actor) {
                         }
                     }
                     await actor.createEmbeddedDocuments('ActiveEffect', aeData);
-                    logDebug(DEBUG_CATEGORIES.EVASION_AE, `Created ${aeData.length} ${defenseLabel.toLowerCase()} AE(s) on ${actor.name}`);
+                    logDebug(DEBUG_CATEGORIES.EVASION_AE, `  ✓ Created ${aeData.length} ${defenseLabel.toLowerCase()} AE(s) on ${actor.name}`);
                 }
 
                 // Stamp pre-existing end_of_combat AEs that were active before combat started.
@@ -813,7 +859,7 @@ async function _syncEvasionActiveEffects(actor) {
 const _thresholdSyncPending = new Set();
 const _thresholdSyncDirty = new Set();
 
-async function _syncThresholdActiveEffects(actor) {
+async function _syncThresholdActiveEffects(actor, { attackerOverride = null } = {}) {
     if (!actor?.id || !actor.isOwner) return;
     if (!('damageThresholds' in (actor.system ?? {}))) return;
 
@@ -831,18 +877,25 @@ async function _syncThresholdActiveEffects(actor) {
             await Promise.resolve();
 
             try {
+                logDebug(DEBUG_CATEGORIES.THRESHOLDS, `── Threshold sync ── ${actor.name} (attackerOverride=${attackerOverride?.name ?? 'none'})`);
+
                 const condEffects = _getActorConditionalEffects(actor);
-                const thresholdEffects = condEffects.filter(ce =>
-                    ce.beneficial && ce.effect.type === 'damage_reduction'
-                );
+                const thresholdEffects = condEffects.filter(ce => {
+                    if (ce.effect.type !== 'damage_reduction') return false;
+                    const at = _getApplyTo(ce);
+                    return at === 'self' || at === 'incoming';
+                });
+
+                logDebug(DEBUG_CATEGORIES.THRESHOLDS, `  ${thresholdEffects.length} damage_reduction effect(s) found: [${thresholdEffects.map(ce => `"${ce.name}" (major=${ce.effect.thresholdMajor ?? 0}, severe=${ce.effect.thresholdSevere ?? 0})`).join(', ')}]`);
 
                 const thresholdInScopeIds = new Set(thresholdEffects.map(ce => ce.id));
                 const thresholdConditionById = new Map();
                 for (const ce of thresholdEffects) {
-                    thresholdConditionById.set(
-                        ce.id,
-                        _evaluateCondition(ce.condition, { self: actor, target: null, action: null })
-                    );
+                    const condTarget = (ce.condition?.rangeSubject === 'attacker' && attackerOverride)
+                        ? attackerOverride : null;
+                    const condResult = _evaluateCondition(ce.condition, { self: actor, target: condTarget, action: null });
+                    thresholdConditionById.set(ce.id, condResult);
+                    logDebug(DEBUG_CATEGORIES.THRESHOLDS, `  Condition for "${ce.name}": ${condResult ? 'MET' : 'NOT MET'} (type=${ce.condition?.type ?? 'always'})`);
                 }
 
                 // Find existing dce threshold AEs on this actor FIRST (before reset checks)
@@ -851,6 +904,7 @@ async function _syncThresholdActiveEffects(actor) {
                     ae.getFlag(MODULE_ID, 'thresholdAE') === true
                 );
                 const existingSourceIds = new Set(existing.map(ae => ae.getFlag(MODULE_ID, 'sourceEffectId')));
+                logDebug(DEBUG_CATEGORIES.THRESHOLDS, `  Existing threshold AEs: ${existing.length} [${existing.map(ae => `"${ae.name}"`).join(', ')}]`);
 
                 // Check for condition transitions (false -> true) and reset exhausted duration
                 await _resetExhaustedDurationOnConditionRestore(actor, 'damage_reduction', thresholdConditionById, existingSourceIds);
@@ -865,12 +919,22 @@ async function _syncThresholdActiveEffects(actor) {
                 // Build the set of condEffect IDs that should have a threshold AE right now.
                 const desired = new Map(); // condEffectId -> { major, severe, name }
                 for (const ce of thresholdEffects) {
-                    if (!_canApplyByDuration(actor, ce)) continue;
-                    if (!thresholdConditionById.get(ce.id)) continue;
+                    if (!_canApplyByDuration(actor, ce)) {
+                        logDebug(DEBUG_CATEGORIES.THRESHOLDS, `  "${ce.name}": SKIP (duration exhausted/blocked)`);
+                        continue;
+                    }
+                    if (!thresholdConditionById.get(ce.id)) {
+                        logDebug(DEBUG_CATEGORIES.THRESHOLDS, `  "${ce.name}": SKIP (condition not met)`);
+                        continue;
+                    }
                     const major = Number(ce.effect.thresholdMajor ?? 0);
                     const severe = Number(ce.effect.thresholdSevere ?? 0);
-                    if (!major && !severe) continue;
+                    if (!major && !severe) {
+                        logDebug(DEBUG_CATEGORIES.THRESHOLDS, `  "${ce.name}": SKIP (both thresholds are 0)`);
+                        continue;
+                    }
                     desired.set(ce.id, { major, severe, name: ce.name });
+                    logDebug(DEBUG_CATEGORIES.THRESHOLDS, `  "${ce.name}": DESIRED (major=${major > 0 ? '+' : ''}${major}, severe=${severe > 0 ? '+' : ''}${severe})`);
                 }
 
                 const toDelete = [];
@@ -888,19 +952,24 @@ async function _syncThresholdActiveEffects(actor) {
                         const currentMajor = _readThresholdChange(ae, 'system.damageThresholds.major');
                         const currentSevere = _readThresholdChange(ae, 'system.damageThresholds.severe');
                         if (currentMajor !== expected.major || currentSevere !== expected.severe) {
+                            logDebug(DEBUG_CATEGORIES.THRESHOLDS, `  AE "${ae.name}": values changed (major ${currentMajor}→${expected.major}, severe ${currentSevere}→${expected.severe}), will recreate`);
                             toDelete.push(ae.id);
                         } else {
+                            logDebug(DEBUG_CATEGORIES.THRESHOLDS, `  AE "${ae.name}": already correct, keeping`);
                             toCreate.delete(sourceId);
                         }
                     } else {
+                        logDebug(DEBUG_CATEGORIES.THRESHOLDS, `  AE "${ae.name}": no longer desired, will delete`);
                         toDelete.push(ae.id);
                     }
                 }
 
+                logDebug(DEBUG_CATEGORIES.THRESHOLDS, `  Summary: ${toDelete.length} to delete, ${toCreate.size} to create`);
+
                 if (toDelete.length) {
                     try {
                         await actor.deleteEmbeddedDocuments('ActiveEffect', toDelete);
-                        logDebug(DEBUG_CATEGORIES.THRESHOLDS, `Deleted ${toDelete.length} threshold AE(s) from ${actor.name}`);
+                        logDebug(DEBUG_CATEGORIES.THRESHOLDS, `  ✓ Deleted ${toDelete.length} threshold AE(s) from ${actor.name}`);
                     } catch (err) {
                         const msg = String(err?.message ?? err);
                         if (msg.includes('does not exist')) {
@@ -919,6 +988,7 @@ async function _syncThresholdActiveEffects(actor) {
                 if (toCreate.size) {
                     const aeData = [];
                     for (const [sourceId, { major, severe, name }] of toCreate) {
+                        logDebug(DEBUG_CATEGORIES.THRESHOLDS, `  Creating AE: "${name}" → major ${major > 0 ? '+' : ''}${major}, severe ${severe > 0 ? '+' : ''}${severe}`);
                         const changes = [];
                         if (major) {
                             changes.push({
@@ -947,7 +1017,7 @@ async function _syncThresholdActiveEffects(actor) {
                             },
                             changes,
                         });
-                        
+
                         // Track combat ID for end_of_combat effects
                         const ce = thresholdEffects.find(e => e.id === sourceId);
                         if (ce?.duration?.mode === 'end_of_combat' && game.combat) {
@@ -956,7 +1026,7 @@ async function _syncThresholdActiveEffects(actor) {
                     }
 
                     await actor.createEmbeddedDocuments('ActiveEffect', aeData);
-                    logDebug(DEBUG_CATEGORIES.THRESHOLDS, `Created ${aeData.length} threshold AE(s) on ${actor.name}`);
+                    logDebug(DEBUG_CATEGORIES.THRESHOLDS, `  ✓ Created ${aeData.length} threshold AE(s) on ${actor.name}`);
                 }
 
                 // Stamp pre-existing end_of_combat AEs that were active before combat started.
@@ -999,7 +1069,7 @@ async function _syncThresholdActiveEffects(actor) {
 const _profSyncPending = new Set();
 const _profSyncDirty = new Set();
 
-async function _syncProficiencyActiveEffects(actor) {
+async function _syncProficiencyActiveEffects(actor, { attackerOverride = null } = {}) {
     if (!actor?.id || !actor.isOwner) return;
     if (!('proficiency' in (actor.system ?? {}))) return;
 
@@ -1015,18 +1085,23 @@ async function _syncProficiencyActiveEffects(actor) {
             await Promise.resolve();
 
             try {
+                logDebug(DEBUG_CATEGORIES.CORE, `── Proficiency sync ── ${actor.name}`);
+
                 const condEffects = _getActorConditionalEffects(actor);
                 const profEffects = condEffects.filter(ce =>
-                    ce.beneficial && ce.effect.type === 'proficiency_bonus'
+                    ce.effect.type === 'proficiency_bonus'
                 );
+
+                logDebug(DEBUG_CATEGORIES.CORE, `  ${profEffects.length} proficiency_bonus effect(s): [${profEffects.map(ce => `"${ce.name}" (bonus=${ce.effect.proficiencyBonus ?? 0})`).join(', ')}]`);
 
                 const profInScopeIds = new Set(profEffects.map(ce => ce.id));
                 const profConditionById = new Map();
                 for (const ce of profEffects) {
-                    profConditionById.set(
-                        ce.id,
-                        _evaluateCondition(ce.condition, { self: actor, target: null, action: null })
-                    );
+                    const condTarget = (ce.condition?.rangeSubject === 'attacker' && attackerOverride)
+                        ? attackerOverride : null;
+                    const condResult = _evaluateCondition(ce.condition, { self: actor, target: condTarget, action: null });
+                    profConditionById.set(ce.id, condResult);
+                    logDebug(DEBUG_CATEGORIES.CORE, `  Condition for "${ce.name}": ${condResult ? 'MET' : 'NOT MET'}`);
                 }
 
                 const existing = actor.effects.filter(ae =>
@@ -1034,17 +1109,28 @@ async function _syncProficiencyActiveEffects(actor) {
                     ae.getFlag(MODULE_ID, 'proficiencyAE') === true
                 );
                 const existingSourceIds = new Set(existing.map(ae => ae.getFlag(MODULE_ID, 'sourceEffectId')));
+                logDebug(DEBUG_CATEGORIES.CORE, `  Existing proficiency AEs: ${existing.length}`);
 
                 await _resetExhaustedDurationOnConditionRestore(actor, 'proficiency_bonus', profConditionById, existingSourceIds);
                 await _resetExhaustedDurationStateForAeType(actor, 'proficiency_bonus', profInScopeIds, profConditionById);
 
                 const desired = new Map();
                 for (const ce of profEffects) {
-                    if (!_canApplyByDuration(actor, ce)) continue;
-                    if (!profConditionById.get(ce.id)) continue;
+                    if (!_canApplyByDuration(actor, ce)) {
+                        logDebug(DEBUG_CATEGORIES.CORE, `  "${ce.name}": SKIP (duration exhausted/blocked)`);
+                        continue;
+                    }
+                    if (!profConditionById.get(ce.id)) {
+                        logDebug(DEBUG_CATEGORIES.CORE, `  "${ce.name}": SKIP (condition not met)`);
+                        continue;
+                    }
                     const bonus = Number(ce.effect.proficiencyBonus ?? 0);
-                    if (!bonus) continue;
+                    if (!bonus) {
+                        logDebug(DEBUG_CATEGORIES.CORE, `  "${ce.name}": SKIP (bonus is 0)`);
+                        continue;
+                    }
                     desired.set(ce.id, { bonus, name: ce.name });
+                    logDebug(DEBUG_CATEGORIES.CORE, `  "${ce.name}": DESIRED (bonus=${bonus > 0 ? '+' : ''}${bonus})`);
                 }
 
                 const toDelete = [];
@@ -1056,19 +1142,24 @@ async function _syncProficiencyActiveEffects(actor) {
                         const expectedBonus = desired.get(sourceId).bonus;
                         const currentBonus = Number(ae.changes?.[0]?.value ?? 0);
                         if (currentBonus !== expectedBonus) {
+                            logDebug(DEBUG_CATEGORIES.CORE, `  AE "${ae.name}": value changed (${currentBonus}→${expectedBonus}), will recreate`);
                             toDelete.push(ae.id);
                         } else {
+                            logDebug(DEBUG_CATEGORIES.CORE, `  AE "${ae.name}": already correct, keeping`);
                             toCreate.delete(sourceId);
                         }
                     } else {
+                        logDebug(DEBUG_CATEGORIES.CORE, `  AE "${ae.name}": no longer desired, will delete`);
                         toDelete.push(ae.id);
                     }
                 }
 
+                logDebug(DEBUG_CATEGORIES.CORE, `  Summary: ${toDelete.length} to delete, ${toCreate.size} to create`);
+
                 if (toDelete.length) {
                     try {
                         await actor.deleteEmbeddedDocuments('ActiveEffect', toDelete);
-                        logDebug(DEBUG_CATEGORIES.CORE, `Deleted ${toDelete.length} proficiency AE(s) from ${actor.name}`);
+                        logDebug(DEBUG_CATEGORIES.CORE, `  ✓ Deleted ${toDelete.length} proficiency AE(s) from ${actor.name}`);
                     } catch (err) {
                         const msg = String(err?.message ?? err);
                         if (msg.includes('does not exist')) {
@@ -1082,6 +1173,7 @@ async function _syncProficiencyActiveEffects(actor) {
                 if (toCreate.size) {
                     const aeData = [];
                     for (const [sourceId, { bonus, name }] of toCreate) {
+                        logDebug(DEBUG_CATEGORIES.CORE, `  Creating AE: "${name}" → system.proficiency ${bonus > 0 ? '+' : ''}${bonus}`);
                         aeData.push({
                             name: `${name} (Proficiency)`,
                             img: 'icons/skills/melee/weapons-crossed-swords-yellow.webp',
@@ -1105,7 +1197,7 @@ async function _syncProficiencyActiveEffects(actor) {
                         }
                     }
                     await actor.createEmbeddedDocuments('ActiveEffect', aeData);
-                    logDebug(DEBUG_CATEGORIES.CORE, `Created ${aeData.length} proficiency AE(s) on ${actor.name}`);
+                    logDebug(DEBUG_CATEGORIES.CORE, `  ✓ Created ${aeData.length} proficiency AE(s) on ${actor.name}`);
                 }
 
                 if (game.combat) {
@@ -1142,7 +1234,7 @@ async function _syncProficiencyActiveEffects(actor) {
 const _statusSyncPending = new Set();
 const _statusSyncDirty = new Set();
 
-async function _syncStatusActiveEffects(actor) {
+async function _syncStatusActiveEffects(actor, { attackerOverride = null } = {}) {
     if (!actor?.id || !actor.isOwner) return;
 
     // Coalesce rapid updates without allowing overlapping async sync runs.
@@ -1159,17 +1251,31 @@ async function _syncStatusActiveEffects(actor) {
             await Promise.resolve();
 
             try {
+                logDebug(DEBUG_CATEGORIES.STATUS_AE, `── Status sync ── ${actor.name}`);
+
                 const condEffects = _getActorConditionalEffects(actor);
 
                 // Build the set of apply_status condEffects that should be active right now.
                 // key = condEffectId, value = { statusId, name }
+                const statusEffects = condEffects.filter(ce => ce.effect.type === 'apply_status');
+                logDebug(DEBUG_CATEGORIES.STATUS_AE, `  ${statusEffects.length} apply_status effect(s): [${statusEffects.map(ce => `"${ce.name}" (status=${ce.effect.applyStatus})`).join(', ')}]`);
+
                 const desired = new Map();
-                for (const ce of condEffects) {
-                    if (ce.effect.type !== 'apply_status') continue;
-                    if (!_evaluateCondition(ce.condition, { self: actor, target: null, action: null })) continue;
+                for (const ce of statusEffects) {
+                    const condTarget = (ce.condition?.rangeSubject === 'attacker' && attackerOverride)
+                        ? attackerOverride : null;
+                    const condResult = _evaluateCondition(ce.condition, { self: actor, target: condTarget, action: null });
+                    if (!condResult) {
+                        logDebug(DEBUG_CATEGORIES.STATUS_AE, `  "${ce.name}": condition NOT MET → skip`);
+                        continue;
+                    }
                     const statusId = ce.effect.applyStatus;
-                    if (!statusId) continue;
+                    if (!statusId) {
+                        logDebug(DEBUG_CATEGORIES.STATUS_AE, `  "${ce.name}": no statusId configured → skip`);
+                        continue;
+                    }
                     desired.set(ce.id, { statusId, name: ce.name });
+                    logDebug(DEBUG_CATEGORIES.STATUS_AE, `  "${ce.name}": DESIRED (status="${statusId}")`);
                 }
 
                 // Find existing dce status AEs on this actor.
@@ -1177,6 +1283,7 @@ async function _syncStatusActiveEffects(actor) {
                     ae.getFlag(MODULE_ID, 'sourceEffectId') !== undefined &&
                     ae.getFlag(MODULE_ID, 'statusAE') === true
                 );
+                logDebug(DEBUG_CATEGORIES.STATUS_AE, `  Existing status AEs: ${existing.length} [${existing.map(ae => `"${ae.name}" (status=${ae.getFlag(MODULE_ID, 'statusId')})`).join(', ')}]`);
 
                 const toDelete = [];
                 const toCreate = new Map(desired);
@@ -1189,21 +1296,26 @@ async function _syncStatusActiveEffects(actor) {
                         const currentStatusId = ae.statuses?.first() ?? ae.getFlag(MODULE_ID, 'statusId');
                         if (currentStatusId !== expectedStatusId) {
                             // Status changed — delete and recreate.
+                            logDebug(DEBUG_CATEGORIES.STATUS_AE, `  AE "${ae.name}": status changed (${currentStatusId}→${expectedStatusId}), will recreate`);
                             toDelete.push(ae.id);
                         } else {
                             // Already correct — don't recreate.
+                            logDebug(DEBUG_CATEGORIES.STATUS_AE, `  AE "${ae.name}": already correct, keeping`);
                             toCreate.delete(sourceId);
                         }
                     } else {
                         // AE exists but condition no longer met — delete.
+                        logDebug(DEBUG_CATEGORIES.STATUS_AE, `  AE "${ae.name}": no longer desired, will delete`);
                         toDelete.push(ae.id);
                     }
                 }
 
+                logDebug(DEBUG_CATEGORIES.STATUS_AE, `  Summary: ${toDelete.length} to delete, ${toCreate.size} to create`);
+
                 if (toDelete.length) {
                     try {
                         await actor.deleteEmbeddedDocuments('ActiveEffect', toDelete);
-                        logDebug(DEBUG_CATEGORIES.STATUS_AE, `Deleted ${toDelete.length} status AE(s) from ${actor.name}`);
+                        logDebug(DEBUG_CATEGORIES.STATUS_AE, `  ✓ Deleted ${toDelete.length} status AE(s) from ${actor.name}`);
                     } catch (err) {
                         const msg = String(err?.message ?? err);
                         if (msg.includes('does not exist')) {
@@ -1222,6 +1334,7 @@ async function _syncStatusActiveEffects(actor) {
                 if (toCreate.size) {
                     const aeData = [];
                     for (const [sourceId, { statusId, name }] of toCreate) {
+                        logDebug(DEBUG_CATEGORIES.STATUS_AE, `  Creating status AE: "${name}" → status="${statusId}"`);
                         // Build a status AE the same way the system does via toggleStatusEffect.
                         // We use fromStatusEffect to get the correct icon/name/statuses data,
                         // then merge our tracking flags in.
@@ -1589,16 +1702,28 @@ function _distanceMatchesRange(distance, mode, band, measurements) {
  * @returns {boolean}
  */
 function _evaluateRangeCondition(condition, self, target = null, action = null) {
+    const _selfName = self?.name ?? '?';
+    const _targetName = target?.name ?? 'null';
+
     // Canvas must be ready and the actor must have a placed token
-    if (!canvas?.ready) return false;
+    if (!canvas?.ready) {
+        logDebug(DEBUG_CATEGORIES.CONDITIONS, `    Condition [range] on ${_selfName}: FAIL (canvas not ready)`);
+        return false;
+    }
     const ownerToken = _getOwnerTokenForRange(self);
-    if (!ownerToken) return false;
+    if (!ownerToken) {
+        logDebug(DEBUG_CATEGORIES.CONDITIONS, `    Condition [range] on ${_selfName}: FAIL (no token on scene)`);
+        return false;
+    }
 
     const mode    = condition.rangeMode    ?? 'within';
     const band    = condition.range        ?? 'close';
     const subject = condition.rangeSubject ?? 'target';
     const count   = Math.max(1, Number(condition.rangeCount ?? 1));
     const measurements = _getRangeMeasurements();
+    const threshold = _getRangeDistance(band, measurements);
+
+    logDebug(DEBUG_CATEGORIES.CONDITIONS, `    Condition [range] on ${_selfName}: mode=${mode}, band=${band} (${threshold}ft), subject=${subject}, target=${_targetName}`);
 
     // Build the set of candidate tokens to check against
     let candidates;
@@ -1628,29 +1753,54 @@ function _evaluateRangeCondition(condition, self, target = null, action = null) 
                 })
                 .filter(Boolean);
         }
+    } else if (subject === 'attacker') {
+        // Resolve attacker from contextual target parameter (set in incoming hooks
+        // or passed as attackerOverride during AE sync).
+        if (!target?.getActiveTokens) {
+            logDebug(DEBUG_CATEGORIES.CONDITIONS, `      subject=attacker but no attacker context provided → FAIL (no active attack)`);
+            return false;
+        }
+        const attackerDocs = target.getActiveTokens(false, true) ?? [];
+        const attackerOnScene = attackerDocs.find(td => td.scene?.id === canvas.scene?.id);
+        const attackerToken = attackerOnScene?.object ?? attackerDocs[0]?.object ?? null;
+        if (!attackerToken) {
+            logDebug(DEBUG_CATEGORIES.CONDITIONS, `      subject=attacker: ${_targetName} has no token on scene → FAIL`);
+            return false;
+        }
+        candidates = [attackerToken];
+        logDebug(DEBUG_CATEGORIES.CONDITIONS, `      subject=attacker: resolved attacker token "${attackerToken.document.name}" at (${attackerToken.document.x}, ${attackerToken.document.y})`);
     } else if (subject === 'friends') {
-        // Friendly disposition (1), exclude self
+        // Same disposition as owner = friend
+        const ownerDisp = ownerToken.document.disposition;
         candidates = canvas.tokens.placeables.filter(t =>
-            t.document.disposition === 1 && t.id !== ownerToken.id
+            t.document.disposition === ownerDisp && t.id !== ownerToken.id
         );
     } else if (subject === 'enemies') {
-        // Hostile disposition (-1), exclude self
+        // Different disposition from owner = enemy
+        const ownerDisp = ownerToken.document.disposition;
         candidates = canvas.tokens.placeables.filter(t =>
-            t.document.disposition === -1 && t.id !== ownerToken.id
+            t.document.disposition !== ownerDisp && t.id !== ownerToken.id
         );
     } else {
+        logDebug(DEBUG_CATEGORIES.CONDITIONS, `      Unknown subject "${subject}" → FAIL`);
         return false;
     }
 
-    if (candidates.length === 0) return false;
+    if (candidates.length === 0) {
+        logDebug(DEBUG_CATEGORIES.CONDITIONS, `      No candidates found for subject=${subject} → FAIL`);
+        return false;
+    }
 
-    // For "target" subject: ALL targets must meet the condition
-    if (subject === 'target') {
-        return candidates.every(candidateToken => {
+    // For "target" / "attacker" subject: ALL candidates must meet the condition
+    if (subject === 'target' || subject === 'attacker') {
+        const result = candidates.every(candidateToken => {
             const dist = Number(ownerToken.distanceTo(candidateToken));
-            if (!Number.isFinite(dist)) return false;
-            return _distanceMatchesRange(dist, mode, band, measurements);
+            const matches = Number.isFinite(dist) && _distanceMatchesRange(dist, mode, band, measurements);
+            logDebug(DEBUG_CATEGORIES.CONDITIONS, `      ${candidateToken.document.name}: dist=${dist}ft, ${mode} ${band} (${threshold}ft) → ${matches ? 'PASS' : 'FAIL'}`);
+            return matches;
         });
+        logDebug(DEBUG_CATEGORIES.CONDITIONS, `    Range result: ${result ? 'PASS' : 'FAIL'} (all ${candidates.length} candidate(s) must match)`);
+        return result;
     }
 
     // For "friends" / "enemies": count how many meet the condition
@@ -1660,21 +1810,35 @@ function _evaluateRangeCondition(condition, self, target = null, action = null) 
         if (!Number.isFinite(dist)) continue;
         if (_distanceMatchesRange(dist, mode, band, measurements)) {
             matching++;
-            if (matching >= count) return true; // early exit
+            if (matching >= count) {
+                logDebug(DEBUG_CATEGORIES.CONDITIONS, `    Range result: PASS (${matching}/${count} ${subject} within ${mode} ${band})`);
+                return true; // early exit
+            }
         }
     }
+    logDebug(DEBUG_CATEGORIES.CONDITIONS, `    Range result: FAIL (${matching}/${count} ${subject} within ${mode} ${band}, needed ${count})`);
     return false;
 }
 
 function _evaluateCondition(condition, { self, target, action, incomingDamageTypes }) {
-    if (condition.type === 'always') return true;
+    if (condition.type === 'always') {
+        logDebug(DEBUG_CATEGORIES.CONDITIONS, `    Condition [always] on ${self?.name ?? '?'}: PASS`);
+        return true;
+    }
 
     if (condition.type === 'damage_type') {
-        // Only valid when incomingDamageTypes is provided (i.e., at preTakeDamage time)
-        if (!incomingDamageTypes) return false;
+        if (!incomingDamageTypes) {
+            logDebug(DEBUG_CATEGORIES.CONDITIONS, `    Condition [damage_type] on ${self?.name ?? '?'}: PASS (no damage types available yet, deferred)`);
+            return true;
+        }
         const wanted = condition.incomingDamageType ?? 'any';
-        if (wanted === 'any') return true;
-        return incomingDamageTypes.has(wanted);
+        if (wanted === 'any') {
+            logDebug(DEBUG_CATEGORIES.CONDITIONS, `    Condition [damage_type=any] on ${self?.name ?? '?'}: PASS`);
+            return true;
+        }
+        const result = incomingDamageTypes.has(wanted);
+        logDebug(DEBUG_CATEGORIES.CONDITIONS, `    Condition [damage_type=${wanted}] on ${self?.name ?? '?'}: ${result ? 'PASS' : 'FAIL'} (incoming types: ${[...incomingDamageTypes].join(',')})`);
+        return result;
     }
 
     if (condition.type === 'range') {
@@ -1682,84 +1846,122 @@ function _evaluateCondition(condition, { self, target, action, incomingDamageTyp
     }
 
     if (condition.type === 'weapon') {
-        if (condition.weaponSlot === 'any') return true;
+        if (condition.weaponSlot === 'any') {
+            logDebug(DEBUG_CATEGORIES.CONDITIONS, `    Condition [weapon=any] on ${self?.name ?? '?'}: PASS`);
+            return true;
+        }
         const item = action?.item ?? null;
-        if (!item) return true;
+        if (!item) {
+            logDebug(DEBUG_CATEGORIES.CONDITIONS, `    Condition [weapon=${condition.weaponSlot}] on ${self?.name ?? '?'}: PASS (no action item)`);
+            return true;
+        }
         // Primary = first equipped weapon; secondary = second
         const equipped = self?.items?.filter(i => i.type === 'weapon' && i.system.equipped) ?? [];
         const slot = equipped.indexOf(item);
-        if (condition.weaponSlot === 'primary')   return slot === 0;
-        if (condition.weaponSlot === 'secondary') return slot === 1;
-        return true;
+        let result;
+        if (condition.weaponSlot === 'primary')   result = slot === 0;
+        else if (condition.weaponSlot === 'secondary') result = slot === 1;
+        else result = true;
+        logDebug(DEBUG_CATEGORIES.CONDITIONS, `    Condition [weapon=${condition.weaponSlot}] on ${self?.name ?? '?'}: ${result ? 'PASS' : 'FAIL'} (item="${item.name}", slot=${slot})`);
+        return result;
     }
 
     // Trigger-based conditions
     if (condition.type === 'rolled_fear') {
         const subject = condition.subject === 'target' ? target : self;
-        if (!subject) return false;
+        if (!subject) { logDebug(DEBUG_CATEGORIES.CONDITIONS, `    Condition [rolled_fear] on ${self?.name ?? '?'}: FAIL (no subject)`); return false; }
         const t = _getTriggers(subject);
-        return Boolean(t.rolledFear);
+        const result = Boolean(t.rolledFear);
+        logDebug(DEBUG_CATEGORIES.CONDITIONS, `    Condition [rolled_fear] on ${subject.name}: ${result ? 'PASS' : 'FAIL'}`);
+        return result;
     }
     if (condition.type === 'took_threshold') {
         const subject = condition.subject === 'target' ? target : self;
-        if (!subject) return false;
+        if (!subject) { logDebug(DEBUG_CATEGORIES.CONDITIONS, `    Condition [took_threshold] on ${self?.name ?? '?'}: FAIL (no subject)`); return false; }
         const th = condition.threshold ?? 'major';
         const t = _getTriggers(subject);
-        return Boolean(t.tookThreshold?.[th]);
+        const result = Boolean(t.tookThreshold?.[th]);
+        logDebug(DEBUG_CATEGORIES.CONDITIONS, `    Condition [took_threshold=${th}] on ${subject.name}: ${result ? 'PASS' : 'FAIL'}`);
+        return result;
     }
     if (condition.type === 'inflicted_threshold') {
         const subject = condition.subject === 'target' ? target : self;
-        if (!subject) return false;
+        if (!subject) { logDebug(DEBUG_CATEGORIES.CONDITIONS, `    Condition [inflicted_threshold] on ${self?.name ?? '?'}: FAIL (no subject)`); return false; }
         const th = condition.threshold ?? 'major';
         const t = _getTriggers(subject);
-        return Boolean(t.inflictedThreshold?.[th]);
+        const result = Boolean(t.inflictedThreshold?.[th]);
+        logDebug(DEBUG_CATEGORIES.CONDITIONS, `    Condition [inflicted_threshold=${th}] on ${subject.name}: ${result ? 'PASS' : 'FAIL'}`);
+        return result;
     }
     if (condition.type === 'rolled_critical') {
         const subject = condition.subject === 'target' ? target : self;
-        if (!subject) return false;
+        if (!subject) { logDebug(DEBUG_CATEGORIES.CONDITIONS, `    Condition [rolled_critical] on ${self?.name ?? '?'}: FAIL (no subject)`); return false; }
         const t = _getTriggers(subject);
-        return Boolean(t.rolledCritical);
+        const result = Boolean(t.rolledCritical);
+        logDebug(DEBUG_CATEGORIES.CONDITIONS, `    Condition [rolled_critical] on ${subject.name}: ${result ? 'PASS' : 'FAIL'}`);
+        return result;
     }
     if (condition.type === 'spent_hope') {
         const subject = condition.subject === 'target' ? target : self;
-        if (!subject) return false;
+        if (!subject) { logDebug(DEBUG_CATEGORIES.CONDITIONS, `    Condition [spent_hope] on ${self?.name ?? '?'}: FAIL (no subject)`); return false; }
         const t = _getTriggers(subject);
-        return Boolean(t.spentHope);
+        const result = Boolean(t.spentHope);
+        logDebug(DEBUG_CATEGORIES.CONDITIONS, `    Condition [spent_hope] on ${subject.name}: ${result ? 'PASS' : 'FAIL'}`);
+        return result;
     }
     if (condition.type === 'armor_slot_marked') {
         const subject = condition.subject === 'target' ? target : self;
-        if (!subject) return false;
+        if (!subject) { logDebug(DEBUG_CATEGORIES.CONDITIONS, `    Condition [armor_slot_marked] on ${self?.name ?? '?'}: FAIL (no subject)`); return false; }
         const t = _getTriggers(subject);
-        return Boolean(t.armorSlotMarked);
+        const result = Boolean(t.armorSlotMarked);
+        logDebug(DEBUG_CATEGORIES.CONDITIONS, `    Condition [armor_slot_marked] on ${subject.name}: ${result ? 'PASS' : 'FAIL'}`);
+        return result;
     }
     if (condition.type === 'no_armor_remaining') {
         const subject = condition.subject === 'target' ? target : self;
-        if (!subject) return false;
+        if (!subject) { logDebug(DEBUG_CATEGORIES.CONDITIONS, `    Condition [no_armor_remaining] on ${self?.name ?? '?'}: FAIL (no subject)`); return false; }
         const armor = subject.system?.resources?.armor;
-        if (!armor || armor.max === 0) return false;
-        return armor.value >= armor.max;
+        if (!armor || armor.max === 0) {
+            logDebug(DEBUG_CATEGORIES.CONDITIONS, `    Condition [no_armor_remaining] on ${subject.name}: FAIL (no armor resource)`);
+            return false;
+        }
+        const result = armor.value >= armor.max;
+        logDebug(DEBUG_CATEGORIES.CONDITIONS, `    Condition [no_armor_remaining] on ${subject.name}: ${result ? 'PASS' : 'FAIL'} (marks=${armor.value}/${armor.max})`);
+        return result;
     }
 
     const subject = condition.subject === 'target' ? target : self;
-    if (!subject) return false;
+    if (!subject) {
+        logDebug(DEBUG_CATEGORIES.CONDITIONS, `    Condition [${condition.type}] on ${self?.name ?? '?'}: FAIL (no ${condition.subject === 'target' ? 'target' : 'self'} subject)`);
+        return false;
+    }
 
     if (condition.type === 'status') {
-        return subject.statuses?.has(condition.status) ?? false;
+        const has = subject.statuses?.has(condition.status) ?? false;
+        logDebug(DEBUG_CATEGORIES.CONDITIONS, `    Condition [status="${condition.status}"] on ${subject.name}: ${has ? 'PASS' : 'FAIL'} (statuses: [${[...(subject.statuses ?? [])].join(', ')}])`);
+        return has;
     }
 
     if (condition.type === 'attribute') {
         const value = _getAttributeValue(subject, condition.attribute);
-        if (value === null || value === undefined) return false;
-        const threshold = Number(condition.value);
-        switch (condition.operator) {
-            case '>=': return value >= threshold;
-            case '<=': return value <= threshold;
-            case '==': return value === threshold;
-            case '>':  return value >  threshold;
-            case '<':  return value <  threshold;
-            default:   return false;
+        if (value === null || value === undefined) {
+            logDebug(DEBUG_CATEGORIES.CONDITIONS, `    Condition [attribute] on ${subject.name}: FAIL (${condition.attribute} is null)`);
+            return false;
         }
+        const threshold = Number(condition.value);
+        let result;
+        switch (condition.operator) {
+            case '>=': result = value >= threshold; break;
+            case '<=': result = value <= threshold; break;
+            case '==': result = value === threshold; break;
+            case '>':  result = value >  threshold; break;
+            case '<':  result = value <  threshold; break;
+            default:   result = false; break;
+        }
+        logDebug(DEBUG_CATEGORIES.CONDITIONS, `    Condition [attribute] on ${subject.name}: ${condition.attribute} (${value}) ${condition.operator} ${threshold} → ${result ? 'PASS' : 'FAIL'}`);
+        return result;
     }
+    logDebug(DEBUG_CATEGORIES.CONDITIONS, `    Condition [${condition.type}] on ${self?.name ?? '?'}: FAIL (unknown condition type)`);
     return false;
 }
 
@@ -1810,14 +2012,19 @@ function _proximitySync() {
     const scene = canvas.scene;
     if (!scene) return;
 
+    const rangeActors = [];
     for (const tokenDoc of scene.tokens) {
         const actor = tokenDoc.actor;
         if (!actor) continue;
         if (!_actorHasRangeCondition(actor)) continue;
+        rangeActors.push(actor);
         _syncEvasionActiveEffects(actor);
         _syncThresholdActiveEffects(actor);
         _syncProficiencyActiveEffects(actor);
         _syncStatusActiveEffects(actor);
+    }
+    if (rangeActors.length) {
+        logDebug(DEBUG_CATEGORIES.CONDITIONS, `Proximity sync: re-evaluating ${rangeActors.length} actor(s) with range conditions: [${rangeActors.map(a => a.name).join(', ')}]`);
     }
 }
 
@@ -1917,7 +2124,7 @@ async function _onRenderItemSheet(app, html, _context, _options) {
             ...e,
             conditionSummary: summarizeCondition(e.condition),
             effectSummary:    summarizeEffect(e.effect),
-            beneficialIcon:   e.beneficial ? 'fa-shield-heart dce-beneficial' : 'fa-skull-crossbones dce-detrimental',
+            applyToIcon:      _getApplyTo(e) === 'self' ? 'fa-user dce-beneficial' : 'fa-bullseye dce-detrimental',
         }));
 
     const sectionHtml = await renderTemplate(`modules/${MODULE_ID}/templates/item-effects.hbs`, { assignedEffects });
@@ -2048,7 +2255,7 @@ async function _injectActorEffectsSection(rootEl, actor, app) {
             ...e,
             conditionSummary: summarizeCondition(e.condition),
             effectSummary:    summarizeEffect(e.effect),
-            beneficialIcon:   e.beneficial ? 'fa-shield-heart dce-beneficial' : 'fa-skull-crossbones dce-detrimental',
+            applyToIcon:      _getApplyTo(e) === 'self' ? 'fa-user dce-beneficial' : 'fa-bullseye dce-detrimental',
         }));
 
     const sectionHtml = await renderTemplate(
@@ -2117,7 +2324,7 @@ async function _injectAdversaryEffectsSection(rootEl, actor, app) {
             ...e,
             conditionSummary: summarizeCondition(e.condition),
             effectSummary:    summarizeEffect(e.effect),
-            beneficialIcon:   e.beneficial ? 'fa-shield-heart dce-beneficial' : 'fa-skull-crossbones dce-detrimental',
+            applyToIcon:      _getApplyTo(e) === 'self' ? 'fa-user dce-beneficial' : 'fa-bullseye dce-detrimental',
         }));
 
     const sectionHtml = await renderTemplate(
@@ -2302,27 +2509,163 @@ function _onPreRoll(config, _message) {
     const firstTarget  = targetActors[0] ?? null;
     const actionCtx    = { self: actor, target: firstTarget, action: config };
 
-    for (const effect of _getActorConditionalEffects(actor)) {
-        if (!effect.beneficial || !_isRollType(effect.effect.type)) continue;
-        if (!_canApplyByDuration(actor, effect)) continue;
-        if (!_matchesRollFilters(effect, config)) continue;
-        if (!_evaluateCondition(effect.condition, actionCtx)) continue;
+    logDebug(DEBUG_CATEGORIES.HOOKS, `── preRollDuality ── ${actor.name} rolling (type=${config.roll?.type ?? '?'}, formula=${config.roll?.formula ?? '?'}), targets=[${targetActors.map(a => a.name).join(', ') || 'none'}]`);
+
+    const selfEffects = _getActorConditionalEffects(actor);
+    logDebug(DEBUG_CATEGORIES.HOOKS, `  Self effects on ${actor.name}: ${selfEffects.length} total`);
+    for (const effect of selfEffects) {
+        if (_getApplyTo(effect) !== 'self' || !_isRollType(effect.effect.type)) continue;
+        if (!_canApplyByDuration(actor, effect)) { logDebug(DEBUG_CATEGORIES.HOOKS, `  SKIP "${effect.name}": duration exhausted`); continue; }
+        if (!_matchesRollFilters(effect, config)) { logDebug(DEBUG_CATEGORIES.HOOKS, `  SKIP "${effect.name}": roll filter mismatch`); continue; }
+        if (!_evaluateCondition(effect.condition, actionCtx)) { logDebug(DEBUG_CATEGORIES.HOOKS, `  SKIP "${effect.name}": condition failed`); continue; }
+        logDebug(DEBUG_CATEGORIES.HOOKS, `  ✓ APPLY "${effect.name}" (${effect.effect.type}) to roll`);
         _applyRollEffect(effect, config);
         _consumeDuration(actor, effect, 'roll');
         _consumeTriggerIfNeeded(actor, effect);
         _processChainedEffects(actor, effect, actionCtx, 'roll');
     }
     for (const targetActor of targetActors) {
-        for (const effect of _getActorConditionalEffects(targetActor)) {
-            if (effect.beneficial || !_isRollType(effect.effect.type)) continue;
-            if (!_canApplyByDuration(targetActor, effect)) continue;
-            if (!_matchesRollFilters(effect, config)) continue;
+        const tgtEffects = _getActorConditionalEffects(targetActor);
+        logDebug(DEBUG_CATEGORIES.HOOKS, `  Incoming effects on target ${targetActor.name}: ${tgtEffects.length} total`);
+        for (const effect of tgtEffects) {
+            if (_getApplyTo(effect) !== 'incoming' || !_isRollType(effect.effect.type)) continue;
+            if (!_canApplyByDuration(targetActor, effect)) { logDebug(DEBUG_CATEGORIES.HOOKS, `  SKIP "${effect.name}": duration exhausted`); continue; }
+            if (!_matchesRollFilters(effect, config)) { logDebug(DEBUG_CATEGORIES.HOOKS, `  SKIP "${effect.name}": roll filter mismatch`); continue; }
             const targetCtx = { self: targetActor, target: actor, action: config };
-            if (!_evaluateCondition(effect.condition, targetCtx)) continue;
+            if (!_evaluateCondition(effect.condition, targetCtx)) { logDebug(DEBUG_CATEGORIES.HOOKS, `  SKIP "${effect.name}": condition failed`); continue; }
+            logDebug(DEBUG_CATEGORIES.HOOKS, `  ✓ APPLY "${effect.name}" (${effect.effect.type}) to incoming roll on ${targetActor.name}`);
             _applyRollEffect(effect, config);
             _consumeDuration(targetActor, effect, 'roll');
             _consumeTriggerIfNeeded(targetActor, effect);
             _processChainedEffects(targetActor, effect, targetCtx, 'roll');
+        }
+    }
+
+    // Reactively sync AE-backed effects with rangeSubject 'attacker' on targets.
+    _syncAttackerAEsForTargets(targetActors, actor);
+
+    // Synchronously patch config.targets evasion/difficulty so the hit/miss
+    // check in postEvaluate uses the boosted values.  (The async AE sync above
+    // updates the actor sheet but the config snapshot was taken before our hook.)
+    _applyDefenseBonusToConfigTargets(config, targetActors, actor);
+}
+
+/** AE-backed effect types that need attacker-reactive sync. */
+const _AE_ATTACKER_TYPES = new Set(['defense_bonus', 'damage_reduction', 'proficiency_bonus', 'apply_status']);
+
+/**
+ * Fire attacker-aware AE syncs on target actors that have AE-backed effects
+ * with rangeSubject === 'attacker'.  Called from _onPreRoll so the AEs are
+ * created before the roll resolves; post-roll cleanup re-syncs without attacker.
+ */
+function _syncAttackerAEsForTargets(targetActors, attacker) {
+    logDebug(DEBUG_CATEGORIES.HOOKS, `  Attacker AE sync: attacker=${attacker?.name ?? 'null'}, targets=[${targetActors.map(a => a.name).join(', ')}]`);
+    for (const targetActor of targetActors) {
+        const effects = _getActorConditionalEffects(targetActor);
+        const attackerEffects = effects.filter(ce => {
+            if (!_AE_ATTACKER_TYPES.has(ce.effect.type)) return false;
+            if (ce.condition?.rangeSubject !== 'attacker') return false;
+            const at = _getApplyTo(ce);
+            return at === 'self' || at === 'incoming';
+        });
+        if (!attackerEffects.length) {
+            logDebug(DEBUG_CATEGORIES.HOOKS, `    ${targetActor.name}: no attacker-range AE effects found (${effects.length} total effects checked)`);
+            continue;
+        }
+
+        logDebug(DEBUG_CATEGORIES.HOOKS, `    ${targetActor.name}: found ${attackerEffects.length} attacker-range AE effect(s): [${attackerEffects.map(e => `"${e.name}" (${e.effect.type})`).join(', ')}]`);
+        logDebug(DEBUG_CATEGORIES.HOOKS, `    Syncing AEs with attackerOverride=${attacker?.name}...`);
+
+        // Track that this actor needs post-roll cleanup
+        _pendingAttackerSyncs.add(targetActor.id);
+
+        const opts = { attackerOverride: attacker };
+        _syncEvasionActiveEffects(targetActor, opts);
+        _syncThresholdActiveEffects(targetActor, opts);
+        _syncProficiencyActiveEffects(targetActor, opts);
+        _syncStatusActiveEffects(targetActor, opts);
+    }
+}
+
+/** Actor IDs that had attacker-aware AE syncs and need post-roll cleanup. */
+const _pendingAttackerSyncs = new Set();
+
+/**
+ * Re-sync actors that had attacker-context AE syncs, WITHOUT attacker context,
+ * so that AEs created solely because of the attacker's proximity are removed.
+ * Called from post-roll hooks after the action resolves.
+ */
+function _cleanupAttackerAEs() {
+    if (_pendingAttackerSyncs.size === 0) return;
+    const actorIds = [..._pendingAttackerSyncs];
+    _pendingAttackerSyncs.clear();
+
+    for (const actorId of actorIds) {
+        const actor = game.actors?.get(actorId);
+        if (!actor) continue;
+        logDebug(DEBUG_CATEGORIES.HOOKS, `Post-roll cleanup: re-syncing attacker AEs on ${actor.name} (removing temporary attacker-context AEs)`);
+        // Sync without attackerOverride — effects with rangeSubject 'attacker'
+        // will evaluate with target=null and return false, removing the temporary AEs.
+        _syncEvasionActiveEffects(actor);
+        _syncThresholdActiveEffects(actor);
+        _syncProficiencyActiveEffects(actor);
+        _syncStatusActiveEffects(actor);
+    }
+}
+
+/**
+ * Synchronously adjust config.targets evasion/difficulty for attacker-range
+ * defense_bonus effects.  The Daggerheart system snapshots target.evasion and
+ * target.difficulty in formatTarget() BEFORE our preRoll hook fires, so the
+ * async AE sync can never update those snapshot values in time.  This function
+ * evaluates the same defense_bonus effects and patches the config directly,
+ * ensuring postEvaluate() uses the correct defense values for hit/miss.
+ *
+ * Only effects with rangeSubject === 'attacker' are handled here — other
+ * defense_bonus AEs are created during normal sync (token movement, status
+ * changes, etc.) and are already baked into the actor's evasion/difficulty
+ * when formatTarget() runs.
+ */
+function _applyDefenseBonusToConfigTargets(config, targetActors, attacker) {
+    if (!config.targets?.length) return;
+
+    for (const targetActor of targetActors) {
+        const condEffects = _getActorConditionalEffects(targetActor);
+        const defenseEffects = condEffects.filter(ce => {
+            if (ce.effect.type !== 'defense_bonus') return false;
+            if (ce.condition?.rangeSubject !== 'attacker') return false;
+            const at = _getApplyTo(ce);
+            return at === 'self' || at === 'incoming';
+        });
+
+        if (!defenseEffects.length) continue;
+
+        let totalBonus = 0;
+        for (const ce of defenseEffects) {
+            if (!_canApplyByDuration(targetActor, ce)) continue;
+            const condTarget = attacker ?? null;
+            if (!_evaluateCondition(ce.condition, { self: targetActor, target: condTarget, action: null })) continue;
+            const bonus = Number(ce.effect.defenseBonus ?? 0);
+            if (!bonus) continue;
+            totalBonus += bonus;
+            logDebug(DEBUG_CATEGORIES.EVASION_AE, `  [config patch] "${ce.name}": defense bonus ${bonus > 0 ? '+' : ''}${bonus} qualifies`);
+        }
+
+        if (totalBonus === 0) continue;
+
+        // Patch matching config targets with the bonus
+        for (const ct of config.targets) {
+            if (ct.actorId !== targetActor.uuid) continue;
+            if (typeof ct.evasion === 'number') {
+                const before = ct.evasion;
+                ct.evasion += totalBonus;
+                logDebug(DEBUG_CATEGORIES.EVASION_AE, `  ⚡ Config target "${ct.name}": evasion ${before} → ${ct.evasion} (${totalBonus > 0 ? '+' : ''}${totalBonus} from attacker-range defense bonus)`);
+            }
+            if (typeof ct.difficulty === 'number') {
+                const before = ct.difficulty;
+                ct.difficulty += totalBonus;
+                logDebug(DEBUG_CATEGORIES.EVASION_AE, `  ⚡ Config target "${ct.name}": difficulty ${before} → ${ct.difficulty} (${totalBonus > 0 ? '+' : ''}${totalBonus} from attacker-range defense bonus)`);
+            }
         }
     }
 }
@@ -2339,13 +2682,19 @@ function _matchesRollFilters(effect, config) {
     const traitFilter = eff.traitFilter ?? 'any';
     if (traitFilter !== 'any') {
         const rollTrait = config?.roll?.trait ?? null;
-        if (!rollTrait || rollTrait !== traitFilter) return false;
+        if (!rollTrait || rollTrait !== traitFilter) {
+            logDebug(DEBUG_CATEGORIES.HOOKS, `    "${effect.name}": trait filter mismatch (want=${traitFilter}, got=${rollTrait ?? 'none'})`);
+            return false;
+        }
     }
     // Action type filter (action vs reaction)
     const actionTypeFilter = eff.actionTypeFilter ?? 'any';
     if (actionTypeFilter !== 'any') {
         const rollActionType = config?.actionType ?? 'action'; // default to 'action' if not set
-        if (rollActionType !== actionTypeFilter) return false;
+        if (rollActionType !== actionTypeFilter) {
+            logDebug(DEBUG_CATEGORIES.HOOKS, `    "${effect.name}": action type filter mismatch (want=${actionTypeFilter}, got=${rollActionType})`);
+            return false;
+        }
     }
     return true;
 }
@@ -2353,14 +2702,25 @@ function _matchesRollFilters(effect, config) {
 function _applyRollEffect(effect, config) {
     const type = effect.effect.type;
     if (type === 'advantage') {
+        const prev = config.roll.advantage;
         config.roll.advantage = ADV_MODE.ADVANTAGE;
+        logDebug(DEBUG_CATEGORIES.HOOKS, `    → Set ADVANTAGE on roll (was ${prev === ADV_MODE.ADVANTAGE ? 'advantage' : prev === ADV_MODE.DISADVANTAGE ? 'disadvantage' : 'normal'}) from "${effect.name}"`);
     } else if (type === 'disadvantage') {
-        if (config.roll.advantage !== ADV_MODE.ADVANTAGE) config.roll.advantage = ADV_MODE.DISADVANTAGE;
+        if (config.roll.advantage !== ADV_MODE.ADVANTAGE) {
+            config.roll.advantage = ADV_MODE.DISADVANTAGE;
+            logDebug(DEBUG_CATEGORIES.HOOKS, `    → Set DISADVANTAGE on roll from "${effect.name}"`);
+        } else {
+            logDebug(DEBUG_CATEGORIES.HOOKS, `    → Disadvantage from "${effect.name}" blocked (advantage already set)`);
+        }
     } else if (type === 'roll_bonus') {
         const bonus = Number(effect.effect.rollBonus);
-        if (!bonus) return;
+        if (!bonus) {
+            logDebug(DEBUG_CATEGORIES.HOOKS, `    → Roll bonus from "${effect.name}" is 0, skipping`);
+            return;
+        }
         config.roll.baseModifiers = config.roll.baseModifiers ?? [];
         config.roll.baseModifiers.push({ label: effect.name, value: bonus });
+        logDebug(DEBUG_CATEGORIES.HOOKS, `    → Added roll modifier ${bonus > 0 ? '+' : ''}${bonus} from "${effect.name}" (total modifiers: ${config.roll.baseModifiers.length})`);
     }
 }
 
@@ -2376,6 +2736,12 @@ function _onPreRollFate(_config, _message) {
 async function _consumeEvasionOnResolvedTargets(config) {
     if (!Array.isArray(config?.targets) || !config.targets.length) return;
 
+    // Resolve the attacker so rangeSubject 'attacker' conditions can evaluate.
+    const attackerUuid = config?.source?.actor;
+    const attacker = attackerUuid ? fromUuidSync(attackerUuid) : null;
+
+    logDebug(DEBUG_CATEGORIES.EVASION_AE, `  Consuming evasion durations on ${config.targets.length} resolved target(s), attacker=${attacker?.name ?? 'unknown'}`);
+
     const consumedDefenseByActor = new Map(); // actorId -> Set<effectId>
     for (const t of config.targets) {
         // Only consume on actual hit checks (hit true/false), not arbitrary target arrays.
@@ -2385,6 +2751,8 @@ async function _consumeEvasionOnResolvedTargets(config) {
         const targetActor = t?.actorId ? fromUuidSync(t.actorId) : null;
         if (!targetActor?.id) continue;
 
+        logDebug(DEBUG_CATEGORIES.EVASION_AE, `    Target ${targetActor.name}: hit=${t.hit}`);
+
         let consumedIds = consumedDefenseByActor.get(targetActor.id);
         if (!consumedIds) {
             consumedIds = new Set();
@@ -2392,11 +2760,17 @@ async function _consumeEvasionOnResolvedTargets(config) {
         }
 
         for (const condEffect of _getActorConditionalEffects(targetActor)) {
-            if (!condEffect.beneficial || condEffect.effect.type !== 'defense_bonus') continue;
+            if (condEffect.effect.type !== 'defense_bonus') continue;
+            const ceApplyTo = _getApplyTo(condEffect);
+            if (ceApplyTo !== 'self' && ceApplyTo !== 'incoming') continue;
             if (!_canApplyByDuration(targetActor, condEffect)) continue;
-            if (!_evaluateCondition(condEffect.condition, { self: targetActor, target: null, action: null })) continue;
+            // Pass attacker for rangeSubject 'attacker' effects
+            const condTarget = (condEffect.condition?.rangeSubject === 'attacker' && attacker)
+                ? attacker : null;
+            if (!_evaluateCondition(condEffect.condition, { self: targetActor, target: condTarget, action: null })) continue;
             if (consumedIds.has(condEffect.id)) continue;
             consumedIds.add(condEffect.id);
+            logDebug(DEBUG_CATEGORIES.EVASION_AE, `    Consuming duration for "${condEffect.name}" on ${targetActor.name}`);
             await _consumeDuration(targetActor, condEffect, 'roll');
             _consumeTriggerIfNeeded(targetActor, condEffect);
         }
@@ -2407,7 +2781,10 @@ async function _onPostRoll(config, _message) {
     // Duality rolls also emit postRollDuality; avoid double-consumption there.
     if (Array.isArray(config?.roll)) return; // ignore damage/healing roll parts
     if (config?.roll?.result?.duality !== undefined) return;
+    const actorName = config?.source?.actor ? (fromUuidSync(config.source.actor)?.name ?? '?') : '?';
+    logDebug(DEBUG_CATEGORIES.HOOKS, `── postRoll ── ${actorName} (type=${config?.roll?.type ?? '?'}, total=${config?.roll?.result?.total ?? '?'})`);
     await _consumeEvasionOnResolvedTargets(config);
+    _cleanupAttackerAEs();
 }
 
 async function _onPostRollDuality(config, _message) {
@@ -2417,6 +2794,7 @@ async function _onPostRollDuality(config, _message) {
         const actor = fromUuidSync(actorUuid);
         if (!actor) return;
         const duality = config?.roll?.result?.duality;
+        logDebug(DEBUG_CATEGORIES.HOOKS, `── postRollDuality ── ${actor.name} (duality=${duality}, hope=${config?.roll?.result?.hope ?? '?'}, fear=${config?.roll?.result?.fear ?? '?'})`);
         if (duality === -1) {
             await _markTrigger(actor, 'rolledFear', { active: true });
             logDebug(DEBUG_CATEGORIES.CORE, `Trigger set: rolledFear on ${actor.name}`);
@@ -2427,6 +2805,9 @@ async function _onPostRollDuality(config, _message) {
         }
 
         await _consumeEvasionOnResolvedTargets(config);
+
+        // Clean up any attacker-reactive AEs that were created in _onPreRoll.
+        _cleanupAttackerAEs();
 
         // Tick on_roll countdowns for the rolling actor
         await _tickCountdowns(actor, 'on_roll');
@@ -2448,12 +2829,13 @@ async function _onPostTakeDamage(targetActor, updates) {
         if (!thresholdValue) return;
 
         const thresholdKey = thresholdValue >= 3 ? 'severe' : thresholdValue === 2 ? 'major' : 'minor';
+        logDebug(DEBUG_CATEGORIES.DAMAGE, `── postTakeDamage ── ${targetActor.name}: ${thresholdValue} HP damage → ${thresholdKey} threshold`);
 
         // Consume AE-backed threshold effects when this actor actually takes damage.
         // Sync hooks on durationState flag updates remove the corresponding AEs.
         const consumedReduction = new Set();
         for (const condEffect of _getActorConditionalEffects(targetActor)) {
-            if (!condEffect.beneficial || condEffect.effect.type !== 'damage_reduction') continue;
+            if (condEffect.effect.type !== 'damage_reduction' || _getApplyTo(condEffect) !== 'self') continue;
             if (!_canApplyByDuration(targetActor, condEffect)) continue;
             if (!_evaluateCondition(condEffect.condition, { self: targetActor, target: null, action: null })) continue;
             if (consumedReduction.has(condEffect.id)) continue;
@@ -2551,6 +2933,34 @@ async function _cleanupExpiredDurationStates(combat, options, userId) {
 
 // ── Damage bonus ──────────────────────────────────────────────────────────────
 
+/** Extract a Set of damage-type strings from a Daggerheart damage action object. */
+function _extractDamageTypesFromAction(action) {
+    const types = new Set();
+    // action.damage.parts[].type is typically an array of strings
+    const parts = action?.damage?.parts ?? [];
+    for (const part of parts) {
+        const t = part.type ?? part.damageTypes;
+        if (Array.isArray(t))          t.forEach(v => types.add(v));
+        else if (t instanceof Set)     t.forEach(v => types.add(v));
+        else if (t && typeof t === 'object') Object.values(t).forEach(v => types.add(v));
+        else if (typeof t === 'string') types.add(t);
+    }
+    return types.size > 0 ? types : null;
+}
+
+/** Extract a Set of damage-type strings from a preRoll config's roll parts. */
+function _extractDamageTypesFromRoll(rollParts) {
+    const types = new Set();
+    if (!Array.isArray(rollParts)) return null;
+    for (const part of rollParts) {
+        const dt = part.damageTypes;
+        if (dt instanceof Set)              dt.forEach(v => types.add(v));
+        else if (Array.isArray(dt))         dt.forEach(v => types.add(v));
+        else if (dt && typeof dt === 'object') Object.values(dt).forEach(v => types.add(v));
+    }
+    return types.size > 0 ? types : null;
+}
+
 function _onPreDamageAction(action, config) {
     const actor = action?.actor;
     if (!actor) return;
@@ -2559,18 +2969,32 @@ function _onPreDamageAction(action, config) {
     const firstTarget  = targetActors[0] ?? null;
     const ctx = { self: actor, target: firstTarget, action };
 
+    // Extract damage types from the action so incoming effects with damage_type
+    // conditions can match against the attacker's damage types.
+    const actionDamageTypes = _extractDamageTypesFromAction(action);
+    logDebug(DEBUG_CATEGORIES.DAMAGE, `── preDamageAction ── ${actor.name} attacking [${targetActors.map(a => a.name).join(', ') || 'none'}], dmgTypes=${actionDamageTypes ? [...actionDamageTypes].join(',') : 'null'}`);
+
     const bonusEffects = [];
-    for (const condEffect of _getActorConditionalEffects(actor)) {
-        if (!condEffect.beneficial || condEffect.effect.type !== 'damage_bonus') continue;
-        if (!_canApplyByDuration(actor, condEffect)) continue;
-        if (!_evaluateCondition(condEffect.condition, ctx)) continue;
+    const selfEffects = _getActorConditionalEffects(actor);
+    for (const condEffect of selfEffects) {
+        if (_getApplyTo(condEffect) !== 'self' || condEffect.effect.type !== 'damage_bonus') continue;
+        if (!_canApplyByDuration(actor, condEffect)) { logDebug(DEBUG_CATEGORIES.DAMAGE, `  SKIP self "${condEffect.name}": duration gate`); continue; }
+        if (!_evaluateCondition(condEffect.condition, ctx)) { logDebug(DEBUG_CATEGORIES.DAMAGE, `  SKIP self "${condEffect.name}": condition failed`); continue; }
+        logDebug(DEBUG_CATEGORIES.DAMAGE, `  PASS self "${condEffect.name}": adding damage bonus (dice=${condEffect.effect.dice ?? ''}, flat=${condEffect.effect.bonus ?? 0})`);
         bonusEffects.push({ ...condEffect, _dceOwnerUuid: actor.uuid });
     }
     for (const targetActor of targetActors) {
-        for (const condEffect of _getActorConditionalEffects(targetActor)) {
-            if (condEffect.beneficial || condEffect.effect.type !== 'damage_bonus') continue;
-            if (!_canApplyByDuration(targetActor, condEffect)) continue;
-            if (!_evaluateCondition(condEffect.condition, { self: targetActor, target: actor, action })) continue;
+        const tgtEffects = _getActorConditionalEffects(targetActor);
+        logDebug(DEBUG_CATEGORIES.DAMAGE, `Incoming dmg check on "${targetActor.name}": ${tgtEffects.length} effects, actionDmgTypes=${actionDamageTypes ? [...actionDamageTypes].join(',') : 'null'}`);
+        for (const condEffect of tgtEffects) {
+            const applyTo = _getApplyTo(condEffect);
+            if (applyTo !== 'incoming' || condEffect.effect.type !== 'damage_bonus') continue;
+            if (!_canApplyByDuration(targetActor, condEffect)) { logDebug(DEBUG_CATEGORIES.DAMAGE, `  SKIP "${condEffect.name}": duration gate`); continue; }
+            if (!_evaluateCondition(condEffect.condition, { self: targetActor, target: actor, action, incomingDamageTypes: actionDamageTypes })) {
+                logDebug(DEBUG_CATEGORIES.DAMAGE, `  SKIP "${condEffect.name}": condition failed (cond=${condEffect.condition.type})`);
+                continue;
+            }
+            logDebug(DEBUG_CATEGORIES.DAMAGE, `  PASS "${condEffect.name}": adding incoming damage bonus`);
             bonusEffects.push({ ...condEffect, _dceOwnerUuid: targetActor.uuid });
         }
     }
@@ -2580,7 +3004,52 @@ function _onPreDamageAction(action, config) {
 }
 
 function _onPreRollDamage(config, _msg) {
-    if (!Array.isArray(config?.roll)) return;
+    // Non-duality attack rolls (e.g. adversary d20 attacks) also fire preRoll.
+    // They aren't damage arrays, but we still need to sync AE-backed effects
+    // that depend on attacker range (e.g. defense_bonus with rangeSubject 'attacker').
+    if (!Array.isArray(config?.roll)) {
+        const rollType = config?.roll?.type ?? 'unknown';
+        const actorUuid = config?.source?.actor;
+        logDebug(DEBUG_CATEGORIES.HOOKS, `── preRoll (non-damage) ── type=${rollType}, source=${actorUuid ? (fromUuidSync(actorUuid)?.name ?? actorUuid) : 'none'}`);
+        // Only handle attack-type rolls (not random preRoll calls)
+        if (rollType === 'attack' && actorUuid) {
+            const attacker = fromUuidSync(actorUuid);
+            if (attacker) {
+                const targetActors = _getTargetActors();
+                logDebug(DEBUG_CATEGORIES.HOOKS, `  d20 attack from ${attacker.name}, targets=[${targetActors.map(a => a.name).join(', ') || 'none'}]`);
+                _syncAttackerAEsForTargets(targetActors, attacker);
+
+                // Synchronously patch config.targets evasion/difficulty so the
+                // hit/miss check in postEvaluate uses the boosted values.
+                // (The async AE sync above updates the actor sheet but arrives
+                //  too late for the snapshot-based config.targets.)
+                _applyDefenseBonusToConfigTargets(config, targetActors, attacker);
+
+                // Also apply roll effects (roll_bonus, advantage, disadvantage)
+                // to non-duality attack rolls so targets' incoming effects still work.
+                const firstTarget = targetActors[0] ?? null;
+                for (const targetActor of targetActors) {
+                    const tgtEffects = _getActorConditionalEffects(targetActor);
+                    logDebug(DEBUG_CATEGORIES.HOOKS, `  Incoming roll effects on target ${targetActor.name}: ${tgtEffects.length} total`);
+                    for (const effect of tgtEffects) {
+                        if (_getApplyTo(effect) !== 'incoming' || !_isRollType(effect.effect.type)) continue;
+                        if (!_canApplyByDuration(targetActor, effect)) { logDebug(DEBUG_CATEGORIES.HOOKS, `  SKIP "${effect.name}": duration exhausted`); continue; }
+                        if (!_matchesRollFilters(effect, config)) { logDebug(DEBUG_CATEGORIES.HOOKS, `  SKIP "${effect.name}": roll filter mismatch`); continue; }
+                        const targetCtx = { self: targetActor, target: attacker, action: config };
+                        if (!_evaluateCondition(effect.condition, targetCtx)) { logDebug(DEBUG_CATEGORIES.HOOKS, `  SKIP "${effect.name}": condition failed`); continue; }
+                        logDebug(DEBUG_CATEGORIES.HOOKS, `  ✓ APPLY "${effect.name}" (${effect.effect.type}) to incoming d20 roll on ${targetActor.name}`);
+                        _applyRollEffect(effect, config);
+                        _consumeDuration(targetActor, effect, 'roll');
+                        _consumeTriggerIfNeeded(targetActor, effect);
+                        _processChainedEffects(targetActor, effect, targetCtx, 'roll');
+                    }
+                }
+            }
+        } else {
+            logDebug(DEBUG_CATEGORIES.HOOKS, `  Ignored (not an attack-type roll)`);
+        }
+        return;
+    }
     if (config._dcePendingDamageEffects) {
         _applyDamageBonusToFormulas(config);
         return;
@@ -2594,18 +3063,28 @@ function _onPreRollDamage(config, _msg) {
     const targetActors = _getTargetActors();
     const firstTarget  = targetActors[0] ?? null;
 
+    // Extract damage types from the roll parts so incoming effects with
+    // damage_type conditions can match against the attacker's damage types.
+    const rollDamageTypes = _extractDamageTypesFromRoll(config.roll);
+
     const bonusEffects = [];
     for (const condEffect of _getActorConditionalEffects(actor)) {
-        if (!condEffect.beneficial || condEffect.effect.type !== 'damage_bonus') continue;
+        if (_getApplyTo(condEffect) !== 'self' || condEffect.effect.type !== 'damage_bonus') continue;
         if (!_canApplyByDuration(actor, condEffect)) continue;
         if (!_evaluateCondition(condEffect.condition, { self: actor, target: firstTarget, action: config })) continue;
         bonusEffects.push({ ...condEffect, _dceOwnerUuid: actor.uuid });
     }
     for (const targetActor of targetActors) {
-        for (const condEffect of _getActorConditionalEffects(targetActor)) {
-            if (condEffect.beneficial || condEffect.effect.type !== 'damage_bonus') continue;
-            if (!_canApplyByDuration(targetActor, condEffect)) continue;
-            if (!_evaluateCondition(condEffect.condition, { self: targetActor, target: actor, action: config })) continue;
+        const tgtEffects = _getActorConditionalEffects(targetActor);
+        logDebug(DEBUG_CATEGORIES.DAMAGE, `[preRoll] Incoming dmg on "${targetActor.name}": ${tgtEffects.length} effects, rollDmgTypes=${rollDamageTypes ? [...rollDamageTypes].join(',') : 'null'}`);
+        for (const condEffect of tgtEffects) {
+            if (_getApplyTo(condEffect) !== 'incoming' || condEffect.effect.type !== 'damage_bonus') continue;
+            if (!_canApplyByDuration(targetActor, condEffect)) { logDebug(DEBUG_CATEGORIES.DAMAGE, `  SKIP "${condEffect.name}": duration gate`); continue; }
+            if (!_evaluateCondition(condEffect.condition, { self: targetActor, target: actor, action: config, incomingDamageTypes: rollDamageTypes })) {
+                logDebug(DEBUG_CATEGORIES.DAMAGE, `  SKIP "${condEffect.name}": condition failed (cond=${condEffect.condition.type})`);
+                continue;
+            }
+            logDebug(DEBUG_CATEGORIES.DAMAGE, `  PASS "${condEffect.name}": adding incoming damage bonus`);
             bonusEffects.push({ ...condEffect, _dceOwnerUuid: targetActor.uuid });
         }
     }
@@ -2713,6 +3192,8 @@ function _onPreTakeDamage(actor, damages) {
     );
     if (!effects.length) return;
 
+    logDebug(DEBUG_CATEGORIES.DAMAGE, `── preTakeDamage ── ${actor.name}: ${effects.length} damage_multiplier effect(s)`);
+
     const consumed = new Set();
 
     for (const [key, damage] of Object.entries(damages)) {
@@ -2725,8 +3206,13 @@ function _onPreTakeDamage(actor, damages) {
             else if (part.damageTypes)                  partTypes = new Set(Object.values(part.damageTypes));
             else                                        partTypes = new Set(['physical']);
 
+            logDebug(DEBUG_CATEGORIES.DAMAGE, `  Damage part: total=${part.total}, types=[${[...partTypes].join(', ')}]`);
+
             for (const condEffect of effects) {
-                if (!_canApplyByDuration(actor, condEffect)) continue;
+                if (!_canApplyByDuration(actor, condEffect)) {
+                    logDebug(DEBUG_CATEGORIES.DAMAGE, `    SKIP "${condEffect.name}": duration exhausted`);
+                    continue;
+                }
                 const eff = condEffect.effect;
                 const multiplier = Number(eff.damageMultiplier ?? 2);
                 if (!multiplier || multiplier === 1) continue;
@@ -2737,11 +3223,17 @@ function _onPreTakeDamage(actor, damages) {
                     target: null,
                     action: null,
                     incomingDamageTypes: partTypes,
-                })) continue;
+                })) {
+                    logDebug(DEBUG_CATEGORIES.DAMAGE, `    SKIP "${condEffect.name}": condition failed`);
+                    continue;
+                }
 
                 // Check that this multiplier's incomingDamageType matches the part (effect-level filter)
                 const wantedType = eff.incomingDamageType ?? 'any';
-                if (wantedType !== 'any' && !partTypes.has(wantedType)) continue;
+                if (wantedType !== 'any' && !partTypes.has(wantedType)) {
+                    logDebug(DEBUG_CATEGORIES.DAMAGE, `    SKIP "${condEffect.name}": damage type mismatch (want=${wantedType}, got=[${[...partTypes].join(',')}])`);
+                    continue;
+                }
 
                 const original = part.total;
                 part.total = Math.ceil(part.total * multiplier);
@@ -2784,8 +3276,11 @@ async function _onPostApplyDamage(action, config) {
     }
 
     const onHitEffects = _getActorConditionalEffects(attacker).filter(e =>
-        e.beneficial && (e.effect.type === 'status_on_hit' || e.effect.type === 'stress_on_hit')
+        _getApplyTo(e) === 'self' && (e.effect.type === 'status_on_hit' || e.effect.type === 'stress_on_hit')
     );
+
+    logDebug(DEBUG_CATEGORIES.STATUS_ON_HIT, `── postApplyDamage ── ${attacker.name} hit targets, ${onHitEffects.length} on-hit effect(s)`);
+
     if (!onHitEffects.length) return;
 
     const targetActors = config.targets
@@ -2793,12 +3288,21 @@ async function _onPostApplyDamage(action, config) {
         .map(t => t.actorId ? fromUuidSync(t.actorId) : null)
         .filter(Boolean);
 
+    logDebug(DEBUG_CATEGORIES.STATUS_ON_HIT, `  Hit targets: [${targetActors.map(a => a.name).join(', ')}]`);
+
     if (!targetActors.length) return;
 
     for (const condEffect of onHitEffects) {
-        if (!_canApplyByDuration(attacker, condEffect)) continue;
+        if (!_canApplyByDuration(attacker, condEffect)) {
+            logDebug(DEBUG_CATEGORIES.STATUS_ON_HIT, `  SKIP "${condEffect.name}": duration exhausted`);
+            continue;
+        }
         const firstTarget = targetActors[0];
-        if (!_evaluateCondition(condEffect.condition, { self: attacker, target: firstTarget, action })) continue;
+        if (!_evaluateCondition(condEffect.condition, { self: attacker, target: firstTarget, action })) {
+            logDebug(DEBUG_CATEGORIES.STATUS_ON_HIT, `  SKIP "${condEffect.name}": condition failed`);
+            continue;
+        }
+        logDebug(DEBUG_CATEGORIES.STATUS_ON_HIT, `  ✓ TRIGGERED "${condEffect.name}" (${condEffect.effect.type})`);
 
         if (condEffect.effect.type === 'status_on_hit') {
             const statusId = condEffect.effect.statusToApply;
@@ -2867,7 +3371,7 @@ export class ConditionalEffectsPalette extends HandlebarsApplicationMixin(Applic
             conditionSummary: summarizeCondition(e.condition),
             effectSummary:    summarizeEffect(e.effect),
             typeLabel:        e.effect.type.replace(/_/g, ' '),
-            beneficialIcon:   e.beneficial ? 'fa-shield-heart dce-beneficial' : 'fa-skull-crossbones dce-detrimental',
+            applyToIcon:      _getApplyTo(e) === 'self' ? 'fa-user dce-beneficial' : 'fa-bullseye dce-detrimental',
         }));
         return { effects, isEmpty: effects.length === 0 };
     }

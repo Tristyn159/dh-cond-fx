@@ -169,7 +169,8 @@ export const RANGE_MODES = [
 
 export const RANGE_SUBJECTS = [
     { id: 'target',   label: 'Current Target(s)' },
-    { id: 'friends',  label: 'Friendly Tokens'   },
+    { id: 'attacker', label: 'Attacker'           },
+    { id: 'friends',  label: 'Friendly Tokens'    },
     { id: 'enemies',  label: 'Hostile Tokens'     },
 ];
 
@@ -195,13 +196,25 @@ export const ACTION_ROLL_TYPES = [
     { id: 'reaction', label: 'Reaction Roll' },
 ];
 
+export const APPLY_TARGETS = [
+    { id: 'self',     label: 'Self (when you act)' },
+    { id: 'incoming', label: 'Incoming (when targeted)' },
+];
+
+/** Resolve applyTo from new field or legacy beneficial boolean (config-side mirror of main.js _getApplyTo) */
+export function resolveApplyTo(ce) {
+    if (ce.effect?.applyTo) return ce.effect.applyTo;
+    const aeTypes = ['defense_bonus', 'damage_reduction', 'proficiency_bonus'];
+    if (aeTypes.includes(ce.effect?.type)) return 'self';
+    return ce.beneficial !== false ? 'self' : 'incoming';
+}
+
 export function defaultEffect() {
     return {
         id:          foundry.utils.randomID(),
         name:        'New Conditional Effect',
         description: '',
         enabled:     true,
-        beneficial:  true,
         duration: {
             mode: 'permanent',
             uses: 1,
@@ -225,6 +238,7 @@ export function defaultEffect() {
         },
         effect: {
             type:              'damage_bonus',
+            applyTo:           'self',
             damageType:        'physical',
             incomingDamageType: 'any',
             dice:              '',
@@ -258,9 +272,8 @@ export const EFFECT_PRESETS = [
                 data: {
                     name: 'Vulnerable — Advantage on Attacks',
                     description: 'Attacks against a Vulnerable target have advantage.',
-                    beneficial: false,
                     condition: { type: 'status', subject: 'target', status: 'vulnerable' },
-                    effect: { type: 'advantage' },
+                    effect: { type: 'advantage', applyTo: 'incoming' },
                     duration: { mode: 'permanent' },
                 },
             },
@@ -271,9 +284,8 @@ export const EFFECT_PRESETS = [
                 data: {
                     name: 'Hidden — Disadvantage on Attacks',
                     description: 'Attacks against a Hidden target have disadvantage.',
-                    beneficial: true,
                     condition: { type: 'status', subject: 'self', status: 'hidden' },
-                    effect: { type: 'disadvantage' },
+                    effect: { type: 'disadvantage', applyTo: 'incoming' },
                     duration: { mode: 'permanent' },
                 },
             },
@@ -284,9 +296,8 @@ export const EFFECT_PRESETS = [
                 data: {
                     name: 'Blessed — Threshold +2',
                     description: 'Blessed increases damage thresholds by +2.',
-                    beneficial: true,
                     condition: { type: 'status', subject: 'self', status: 'blessed' },
-                    effect: { type: 'damage_reduction', thresholdMajor: 2, thresholdSevere: 2 },
+                    effect: { type: 'damage_reduction', applyTo: 'self', thresholdMajor: 2, thresholdSevere: 2 },
                     duration: { mode: 'permanent' },
                 },
             },
@@ -297,7 +308,6 @@ export const EFFECT_PRESETS = [
                 data: {
                     name: 'Poisoned — Extra Damage Taken',
                     description: 'Poisoned targets take 1.5× incoming damage.',
-                    beneficial: false,
                     condition: { type: 'status', subject: 'self', status: 'poisoned' },
                     effect: { type: 'damage_multiplier', damageMultiplier: 1.5, incomingDamageType: 'any' },
                     duration: { mode: 'permanent' },
@@ -310,9 +320,8 @@ export const EFFECT_PRESETS = [
                 data: {
                     name: 'Weakened — Roll Penalty',
                     description: 'Weakened imposes -2 to all rolls.',
-                    beneficial: false,
                     condition: { type: 'status', subject: 'self', status: 'weakened' },
-                    effect: { type: 'roll_bonus', rollBonus: -2 },
+                    effect: { type: 'roll_bonus', applyTo: 'self', rollBonus: -2 },
                     duration: { mode: 'permanent' },
                 },
             },
@@ -328,9 +337,8 @@ export const EFFECT_PRESETS = [
                 data: {
                     name: 'Low HP Rage',
                     description: 'Below 25% HP: +1d6 damage bonus.',
-                    beneficial: true,
                     condition: { type: 'attribute', subject: 'self', attribute: 'hitPoints_pct', operator: '<=', value: 25 },
-                    effect: { type: 'damage_bonus', dice: '1d6', bonus: 0, damageType: 'any' },
+                    effect: { type: 'damage_bonus', applyTo: 'self', dice: '1d6', bonus: 0, damageType: 'any' },
                     duration: { mode: 'permanent' },
                 },
             },
@@ -341,9 +349,8 @@ export const EFFECT_PRESETS = [
                 data: {
                     name: 'Desperate Stand',
                     description: 'At 1 HP: advantage on all rolls.',
-                    beneficial: true,
                     condition: { type: 'attribute', subject: 'self', attribute: 'hitPoints', operator: '<=', value: 1 },
-                    effect: { type: 'advantage' },
+                    effect: { type: 'advantage', applyTo: 'self' },
                     duration: { mode: 'permanent' },
                 },
             },
@@ -354,9 +361,8 @@ export const EFFECT_PRESETS = [
                 data: {
                     name: 'Hope Surge',
                     description: 'High Hope (5+): +2 to all rolls.',
-                    beneficial: true,
                     condition: { type: 'attribute', subject: 'self', attribute: 'hope', operator: '>=', value: 5 },
-                    effect: { type: 'roll_bonus', rollBonus: 2 },
+                    effect: { type: 'roll_bonus', applyTo: 'self', rollBonus: 2 },
                     duration: { mode: 'permanent' },
                 },
             },
@@ -367,9 +373,8 @@ export const EFFECT_PRESETS = [
                 data: {
                     name: 'Stress Cascade',
                     description: 'High Stress (5+): disadvantage on all rolls.',
-                    beneficial: false,
                     condition: { type: 'attribute', subject: 'self', attribute: 'stress', operator: '>=', value: 5 },
-                    effect: { type: 'disadvantage' },
+                    effect: { type: 'disadvantage', applyTo: 'self' },
                     duration: { mode: 'permanent' },
                 },
             },
@@ -380,9 +385,8 @@ export const EFFECT_PRESETS = [
                 data: {
                     name: 'No Armor — Evasion Penalty',
                     description: 'No armor remaining: -2 Evasion.',
-                    beneficial: false,
                     condition: { type: 'no_armor_remaining', subject: 'self' },
-                    effect: { type: 'defense_bonus', defenseBonus: -2 },
+                    effect: { type: 'defense_bonus', applyTo: 'self', defenseBonus: -2 },
                     duration: { mode: 'permanent' },
                 },
             },
@@ -398,9 +402,8 @@ export const EFFECT_PRESETS = [
                 data: {
                     name: 'Fear-Fueled',
                     description: 'Rolled with Fear: +1d4 on next damage.',
-                    beneficial: true,
                     condition: { type: 'rolled_fear', subject: 'self' },
-                    effect: { type: 'damage_bonus', dice: '1d4', bonus: 0, damageType: 'any' },
+                    effect: { type: 'damage_bonus', applyTo: 'self', dice: '1d4', bonus: 0, damageType: 'any' },
                     duration: { mode: 'next_damage' },
                 },
             },
@@ -411,9 +414,8 @@ export const EFFECT_PRESETS = [
                 data: {
                     name: 'Critical Momentum',
                     description: 'On Critical: target becomes Vulnerable.',
-                    beneficial: true,
                     condition: { type: 'rolled_critical', subject: 'self' },
-                    effect: { type: 'status_on_hit', statusToApply: 'vulnerable' },
+                    effect: { type: 'status_on_hit', applyTo: 'self', statusToApply: 'vulnerable' },
                     duration: { mode: 'once' },
                 },
             },
@@ -424,9 +426,8 @@ export const EFFECT_PRESETS = [
                 data: {
                     name: 'Hope Spent — +1 Roll Bonus',
                     description: 'After spending Hope: +1 to next roll.',
-                    beneficial: true,
                     condition: { type: 'spent_hope', subject: 'self' },
-                    effect: { type: 'roll_bonus', rollBonus: 1 },
+                    effect: { type: 'roll_bonus', applyTo: 'self', rollBonus: 1 },
                     duration: { mode: 'next_roll' },
                 },
             },
@@ -437,9 +438,8 @@ export const EFFECT_PRESETS = [
                 data: {
                     name: 'Armor Break — Evasion -1',
                     description: 'Armor slot marked: -1 Evasion until combat ends.',
-                    beneficial: false,
                     condition: { type: 'armor_slot_marked', subject: 'self' },
-                    effect: { type: 'defense_bonus', defenseBonus: -1 },
+                    effect: { type: 'defense_bonus', applyTo: 'self', defenseBonus: -1 },
                     duration: { mode: 'end_of_combat' },
                 },
             },
@@ -450,9 +450,8 @@ export const EFFECT_PRESETS = [
                 data: {
                     name: 'Took Major — Stress on Hit',
                     description: 'After taking Major damage: apply 1 Stress on next hit.',
-                    beneficial: true,
                     condition: { type: 'took_threshold', subject: 'self', threshold: 'major' },
-                    effect: { type: 'stress_on_hit', stressAmount: 1 },
+                    effect: { type: 'stress_on_hit', applyTo: 'self', stressAmount: 1 },
                     duration: { mode: 'once' },
                 },
             },
@@ -468,9 +467,8 @@ export const EFFECT_PRESETS = [
                 data: {
                     name: 'Aura of Protection',
                     description: 'Unconditional +1 to Evasion.',
-                    beneficial: true,
                     condition: { type: 'always' },
-                    effect: { type: 'defense_bonus', defenseBonus: 1 },
+                    effect: { type: 'defense_bonus', applyTo: 'self', defenseBonus: 1 },
                     duration: { mode: 'permanent' },
                 },
             },
@@ -481,9 +479,8 @@ export const EFFECT_PRESETS = [
                 data: {
                     name: 'Enchanted Weapon',
                     description: '+1d4 magical damage.',
-                    beneficial: true,
                     condition: { type: 'always' },
-                    effect: { type: 'damage_bonus', dice: '1d4', bonus: 0, damageType: 'magical' },
+                    effect: { type: 'damage_bonus', applyTo: 'self', dice: '1d4', bonus: 0, damageType: 'magical' },
                     duration: { mode: 'permanent' },
                 },
             },
@@ -494,7 +491,6 @@ export const EFFECT_PRESETS = [
                 data: {
                     name: 'Proficiency +1',
                     description: '+1 to Proficiency.',
-                    beneficial: true,
                     condition: { type: 'always' },
                     effect: { type: 'proficiency_bonus', proficiencyBonus: 1 },
                     duration: { mode: 'permanent' },
@@ -507,9 +503,8 @@ export const EFFECT_PRESETS = [
                 data: {
                     name: '3-Round Advantage',
                     description: 'Advantage for 3 rounds.',
-                    beneficial: true,
                     condition: { type: 'always' },
-                    effect: { type: 'advantage' },
+                    effect: { type: 'advantage', applyTo: 'self' },
                     duration: { mode: 'countdown', countdownTicks: 3, countdownTickOn: 'round_start' },
                 },
             },
@@ -669,7 +664,8 @@ export function summarizeCondition(condition) {
         const mode  = RANGE_MODES.find(m => m.id === condition.rangeMode)?.label ?? condition.rangeMode ?? 'Within';
         const band  = RANGE_TYPES.find(r => r.id === condition.range)?.label ?? condition.range;
         const subj  = condition.rangeSubject ?? 'target';
-        if (subj === 'target') return `${mode}: ${band} — Target`;
+        if (subj === 'target')   return `${mode}: ${band} — Target`;
+        if (subj === 'attacker') return `${mode}: ${band} — Attacker`;
         const label = subj === 'friends' ? 'Friends' : 'Enemies';
         const count = condition.rangeCount ?? 1;
         return `${mode}: ${band} — ${count}+ ${label}`;
@@ -770,8 +766,8 @@ export class ConditionalEffectsManager extends HandlebarsApplicationMixin(Applic
             ...e,
             conditionSummary: summarizeCondition(e.condition),
             effectSummary:    summarizeEffect(e.effect),
-            beneficialLabel:  e.beneficial ? 'Beneficial' : 'Detrimental',
-            beneficialIcon:   e.beneficial ? 'fa-shield-heart dce-beneficial' : 'fa-skull-crossbones dce-detrimental',
+            applyToLabel:     resolveApplyTo(e) === 'self' ? 'Self' : 'Incoming',
+            applyToIcon:      resolveApplyTo(e) === 'self' ? 'fa-user dce-beneficial' : 'fa-bullseye dce-detrimental',
             effectiveEnabled: isEffectActive(e),
             overrideOff:      sceneDisabled.includes(e.id),
             overridePC:       pcToggles.includes(e.id),
@@ -930,6 +926,8 @@ export class ConditionalEffectConfig extends HandlebarsApplicationMixin(Applicat
             durationModes: DURATION_MODES,
             countdownTickEvents: COUNTDOWN_TICK_EVENTS,
             traits: TRAITS, actionRollTypes: ACTION_ROLL_TYPES,
+            applyTargets: APPLY_TARGETS,
+            showApplyTo:          eff.type === 'damage_bonus' || eff.type === 'roll_bonus' || eff.type === 'advantage' || eff.type === 'disadvantage' || eff.type === 'defense_bonus' || eff.type === 'damage_reduction' || eff.type === 'status_on_hit' || eff.type === 'stress_on_hit',
             showSubject:          cond.type === 'status' || cond.type === 'attribute' || cond.type === 'took_threshold' || cond.type === 'inflicted_threshold' || cond.type === 'rolled_fear' || cond.type === 'rolled_critical' || cond.type === 'spent_hope' || cond.type === 'armor_slot_marked' || cond.type === 'no_armor_remaining',
             showStatus:           cond.type === 'status',
             showAttribute:        cond.type === 'attribute',
@@ -951,7 +949,6 @@ export class ConditionalEffectConfig extends HandlebarsApplicationMixin(Applicat
             showProficiencyBonus: eff.type === 'proficiency_bonus',
             showStressOnHit:      eff.type === 'stress_on_hit',
             enabledStr:          String(effect.enabled),
-            beneficialStr:       String(effect.beneficial),
             durationMode:        String(dur.mode ?? 'permanent'),
             durationUses:        Number(dur.uses ?? 1),
         };
@@ -965,16 +962,6 @@ export class ConditionalEffectConfig extends HandlebarsApplicationMixin(Applicat
         el.querySelector('[name="duration.mode"]')?.addEventListener('change',  () => this._updateVisibility());
         this._updateVisibility();
 
-        const beneficialInput = el.querySelector('[name="beneficial"]');
-        el.querySelectorAll('.dce-polarity-btn[data-polarity]').forEach(btn => {
-            btn.addEventListener('click', () => {
-                const val = btn.dataset.polarity;
-                if (beneficialInput) beneficialInput.value = val;
-                el.querySelectorAll('.dce-polarity-btn').forEach(b => b.classList.remove('active-beneficial', 'active-detrimental'));
-                btn.classList.add(val === 'true' ? 'active-beneficial' : 'active-detrimental');
-            });
-        });
-
         el.addEventListener('submit', async e => {
             e.preventDefault();
             const fd  = new FormData(el);
@@ -984,7 +971,6 @@ export class ConditionalEffectConfig extends HandlebarsApplicationMixin(Applicat
             const raw = foundry.utils.expandObject(Object.fromEntries(fd.entries()));
             if (raw.effect) raw.effect.chainEffectIds = chainIds;
             raw.enabled    = raw.enabled    === 'true' || raw.enabled    === true;
-            raw.beneficial = raw.beneficial === 'true' || raw.beneficial === true;
             if (raw.duration) {
                 raw.duration.uses = Number(raw.duration.uses ?? 1);
                 raw.duration.mode = String(raw.duration.mode ?? 'permanent');
@@ -1051,6 +1037,7 @@ export class ConditionalEffectConfig extends HandlebarsApplicationMixin(Applicat
         this._toggle('.dce-field-roll-filters',        effType  === 'roll_bonus' || effType === 'advantage' || effType === 'disadvantage');
         this._toggle('.dce-field-proficiency-bonus',   effType  === 'proficiency_bonus');
         this._toggle('.dce-field-stress-on-hit',       effType  === 'stress_on_hit');
+        this._toggle('.dce-field-applyto',             effType === 'damage_bonus' || effType === 'roll_bonus' || effType === 'advantage' || effType === 'disadvantage' || effType === 'defense_bonus' || effType === 'damage_reduction' || effType === 'status_on_hit' || effType === 'stress_on_hit');
     }
 
     _toggle(selector, visible) {
@@ -1209,7 +1196,7 @@ export class ActiveAssignmentsViewer extends HandlebarsApplicationMixin(Applicat
             effectName:       effect.name,
             conditionSummary: summarizeCondition(effect.condition),
             effectSummary:    summarizeEffect(effect.effect),
-            beneficialIcon:   effect.beneficial ? 'fa-shield-heart dce-beneficial' : 'fa-skull-crossbones dce-detrimental',
+            applyToIcon:      resolveApplyTo(effect) === 'self' ? 'fa-user dce-beneficial' : 'fa-bullseye dce-detrimental',
             ...source,
         };
     }
