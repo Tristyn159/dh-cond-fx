@@ -18,21 +18,17 @@
           <option value="false" {{#if (eq enabledStr "false")}}selected{{/if}}>No</option>
         </select>
       </div>
-      <div class="dce-form-row">
-        <label>Polarity
-          <span class="dce-hint-icon" title="Beneficial: the item owner gains this effect. Detrimental: attackers targeting the owner gain it.">
+      <div class="dce-form-row dce-field-applyto {{#unless showApplyTo}}dce-hidden{{/unless}}">
+        <label>Applies to
+          <span class="dce-hint-icon" title="Self: this effect applies when the owner acts (attacks, rolls). Incoming: applies when others target the owner.">
             <i class="fas fa-circle-question"></i>
           </span>
         </label>
-        <input type="hidden" name="beneficial" value="{{beneficialStr}}" />
-        <div class="dce-polarity-toggle">
-          <button type="button" class="dce-polarity-btn {{#if (eq beneficialStr "true")}}active-beneficial{{/if}}" data-polarity="true">
-            <i class="fas fa-shield-heart"></i> Beneficial
-          </button>
-          <button type="button" class="dce-polarity-btn {{#if (eq beneficialStr "false")}}active-detrimental{{/if}}" data-polarity="false">
-            <i class="fas fa-skull-crossbones"></i> Detrimental
-          </button>
-        </div>
+        <select name="effect.applyTo">
+          {{#each applyTargets}}
+          <option value="{{id}}" {{#if (eq ../effect.effect.applyTo id)}}selected{{/if}}>{{label}}</option>
+          {{/each}}
+        </select>
       </div>
     </div>
   </fieldset>
@@ -282,7 +278,7 @@
               <i class="fas fa-circle-question"></i>
             </span>
           </label>
-          <input type="number" name="effect.thresholdMajor" value="{{effect.effect.thresholdMajor}}" step="1" min="0" />
+          <input type="number" name="effect.thresholdMajor" value="{{effect.effect.thresholdMajor}}" step="1" />
         </div>
         <div class="dce-form-row">
           <label>Severe Threshold Bonus
@@ -290,7 +286,7 @@
               <i class="fas fa-circle-question"></i>
             </span>
           </label>
-          <input type="number" name="effect.thresholdSevere" value="{{effect.effect.thresholdSevere}}" step="1" min="0" />
+          <input type="number" name="effect.thresholdSevere" value="{{effect.effect.thresholdSevere}}" step="1" />
         </div>
       </div>
 

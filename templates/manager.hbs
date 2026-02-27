@@ -52,7 +52,7 @@
          data-effect-id="{{id}}" draggable="true" title="Drag onto an item or actor sheet to assign">
       <span class="dce-col-drag"><i class="fas fa-grip-vertical"></i></span>
       <span class="dce-col-name">
-        <i class="fas {{beneficialIcon}}" title="{{beneficialLabel}}"></i>
+        <i class="fas {{applyToIcon}}" title="{{applyToLabel}}"></i>
         {{name}}
         {{#if description}}
         <span class="dce-desc-icon" title="{{description}}"><i class="fas fa-circle-question"></i></span>
@@ -113,7 +113,7 @@
     {{#each effects}}
     <div class="dce-override-row {{#unless effectiveEnabled}}dce-row-disabled{{/unless}}" data-effect-id="{{id}}">
       <span class="dce-col-name">
-        <i class="fas {{beneficialIcon}}"></i> {{name}}
+        <i class="fas {{applyToIcon}}"></i> {{name}}
       </span>
       <span class="dce-col-condition dce-muted">{{conditionSummary}}</span>
       <span class="dce-col-effect dce-muted">{{effectSummary}}</span>
