@@ -22,6 +22,11 @@
     <button type="button" data-action="newEffect" class="dce-btn-primary">
       <i class="fas fa-plus"></i> New Effect
     </button>
+    {{#unless isEmpty}}
+    <button type="button" data-action="deleteAllEffects" class="dce-btn-danger">
+      <i class="fas fa-trash-can"></i> Delete All
+    </button>
+    {{/unless}}
   </div>
 
     <div class="dce-manager-warnings">
@@ -132,6 +137,11 @@
                 class="dce-override-btn {{#if overrideNPC}}active-override-npc{{/if}}"
                 title="Apply to all adversaries in this scene (regardless of manual assignment)">
           <i class="fas fa-skull"></i> Foes
+        </button>
+        <button type="button" data-action="applyActorPicker"
+                class="dce-override-btn"
+                title="Pick specific actors on this scene to receive this effect">
+          <i class="fas fa-list-check"></i> All
         </button>
       </span>
     </div>

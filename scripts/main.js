@@ -2541,6 +2541,32 @@ function _onPreRoll(config, _message) {
         }
     }
 
+    // ── Chain pass: non-roll effects whose conditions are met may chain into
+    //    roll-type effects.  E.g. apply_status (prone → vulnerable) chaining
+    //    to advantage on incoming rolls.  The parent effect itself isn't applied
+    //    here (it's not a roll effect), but its chains ARE processed. ──
+    for (const effect of selfEffects) {
+        if (_isRollType(effect.effect.type)) continue; // already handled above
+        if (_getApplyTo(effect) !== 'self') continue;
+        if (!effect.effect?.chainEffectIds?.length) continue;
+        if (!_canApplyByDuration(actor, effect)) continue;
+        if (!_evaluateCondition(effect.condition, actionCtx)) continue;
+        logDebug(DEBUG_CATEGORIES.HOOKS, `  Chain-pass (self): "${effect.name}" condition met → processing chains`);
+        _processChainedEffects(actor, effect, actionCtx, 'roll');
+    }
+    for (const targetActor of targetActors) {
+        const chainEffects = _getActorConditionalEffects(targetActor);
+        for (const effect of chainEffects) {
+            if (_isRollType(effect.effect.type)) continue;
+            if (!effect.effect?.chainEffectIds?.length) continue;
+            if (!_canApplyByDuration(targetActor, effect)) continue;
+            const chainCtx = { self: targetActor, target: actor, action: config };
+            if (!_evaluateCondition(effect.condition, chainCtx)) continue;
+            logDebug(DEBUG_CATEGORIES.HOOKS, `  Chain-pass (target ${targetActor.name}): "${effect.name}" condition met → processing chains`);
+            _processChainedEffects(targetActor, effect, chainCtx, 'roll');
+        }
+    }
+
     // Reactively sync AE-backed effects with rangeSubject 'attacker' on targets.
     _syncAttackerAEsForTargets(targetActors, actor);
 
@@ -3042,6 +3068,20 @@ function _onPreRollDamage(config, _msg) {
                         _consumeDuration(targetActor, effect, 'roll');
                         _consumeTriggerIfNeeded(targetActor, effect);
                         _processChainedEffects(targetActor, effect, targetCtx, 'roll');
+                    }
+                }
+
+                // ── Chain pass for d20 path (same logic as duality path) ──
+                for (const targetActor of targetActors) {
+                    const chainEffects = _getActorConditionalEffects(targetActor);
+                    for (const effect of chainEffects) {
+                        if (_isRollType(effect.effect.type)) continue;
+                        if (!effect.effect?.chainEffectIds?.length) continue;
+                        if (!_canApplyByDuration(targetActor, effect)) continue;
+                        const chainCtx = { self: targetActor, target: attacker, action: config };
+                        if (!_evaluateCondition(effect.condition, chainCtx)) continue;
+                        logDebug(DEBUG_CATEGORIES.HOOKS, `  Chain-pass (target ${targetActor.name}): "${effect.name}" condition met → processing chains`);
+                        _processChainedEffects(targetActor, effect, chainCtx, 'roll');
                     }
                 }
             }

@@ -17,7 +17,7 @@ export const APPLICABLE_ITEM_TYPES = ['weapon', 'armor', 'domainCard', 'feature'
 export const ADV_MODE = { NORMAL: 0, ADVANTAGE: 1, DISADVANTAGE: -1 };
 
 export const STATUSES = [
-    // ── Core conditions (verified in system source) ──────────────────────────
+    // ── Daggerheart-specific statuses ────────────────────────────────────────
     { id: 'dead',         label: 'Dead'          },
     { id: 'deathMove',    label: 'Death Move'    },
     { id: 'defeated',     label: 'Defeated'      },
@@ -25,37 +25,39 @@ export const STATUSES = [
     { id: 'restrained',   label: 'Restrained'    },
     { id: 'unconscious',  label: 'Unconscious'   },
     { id: 'vulnerable',   label: 'Vulnerable'    },
-    // ── Status conditions (from AE dropdown) ─────────────────────────────────
-    { id: 'asleep',       label: 'Asleep'        },
+    // ── Foundry core statuses (IDs verified via actor.statuses console dump) ─
     { id: 'bleeding',     label: 'Bleeding'      },
-    { id: 'blessed',      label: 'Blessed'       },
+    { id: 'bless',        label: 'Blessed'       },
     { id: 'blind',        label: 'Blind'         },
     { id: 'burning',      label: 'Burning'       },
-    { id: 'burrowing',    label: 'Burrowing'     },
-    { id: 'corroding',    label: 'Corroding'     },
-    { id: 'cursed',       label: 'Cursed'        },
+    { id: 'burrow',       label: 'Burrowing'     },
+    { id: 'coldShield',   label: 'Ice Shield'    },
+    { id: 'corrode',      label: 'Corroding'     },
+    { id: 'curse',        label: 'Cursed'        },
     { id: 'deaf',         label: 'Deaf'          },
-    { id: 'degenerating', label: 'Degenerating'  },
-    { id: 'diseased',     label: 'Diseased'      },
-    { id: 'empowered',    label: 'Empowered'     },
+    { id: 'degen',        label: 'Degenerating'  },
+    { id: 'disease',      label: 'Diseased'      },
+    { id: 'downgrade',    label: 'Weakened'       },
+    { id: 'eye',          label: 'Marked'        },
+    { id: 'fear',         label: 'Frightened'    },
     { id: 'fireShield',   label: 'Fire Shield'   },
-    { id: 'flying',       label: 'Flying'        },
-    { id: 'frightened',   label: 'Frightened'    },
+    { id: 'fly',          label: 'Flying'        },
     { id: 'frozen',       label: 'Frozen'        },
     { id: 'holyShield',   label: 'Holy Shield'   },
-    { id: 'hovering',     label: 'Hovering'      },
-    { id: 'iceShield',    label: 'Ice Shield'    },
+    { id: 'hover',        label: 'Hovering'      },
     { id: 'invisible',    label: 'Invisible'     },
-    { id: 'magusShield',  label: 'Magus Shield'  },
-    { id: 'marked',       label: 'Marked'        },
-    { id: 'paralyzed',    label: 'Paralyzed'     },
-    { id: 'poisoned',     label: 'Poisoned'      },
+    { id: 'magicShield',  label: 'Magic Shield'  },
+    { id: 'paralysis',    label: 'Paralyzed'     },
+    { id: 'poison',       label: 'Poisoned'      },
     { id: 'prone',        label: 'Prone'         },
-    { id: 'regenerating', label: 'Regenerating'  },
-    { id: 'shocked',      label: 'Shocked'       },
-    { id: 'silenced',     label: 'Silenced'      },
-    { id: 'stunned',      label: 'Stunned'       },
-    { id: 'weakened',     label: 'Weakened'      },
+    { id: 'regen',        label: 'Regenerating'  },
+    { id: 'restrain',     label: 'Restrained (Core)' },
+    { id: 'shock',        label: 'Shocked'       },
+    { id: 'silence',      label: 'Silenced'      },
+    { id: 'sleep',        label: 'Asleep'        },
+    { id: 'stun',         label: 'Stunned'       },
+    { id: 'target',       label: 'Targeted'      },
+    { id: 'upgrade',      label: 'Empowered'     },
 ];
 
 export const ATTRIBUTES = [
@@ -273,7 +275,7 @@ export const EFFECT_PRESETS = [
                     name: 'Vulnerable — Advantage on Attacks',
                     description: 'Attacks against a Vulnerable target have advantage.',
                     condition: { type: 'status', subject: 'target', status: 'vulnerable' },
-                    effect: { type: 'advantage', applyTo: 'incoming' },
+                    effect: { type: 'advantage', applyTo: 'self' },
                     duration: { mode: 'permanent' },
                 },
             },
@@ -296,7 +298,7 @@ export const EFFECT_PRESETS = [
                 data: {
                     name: 'Blessed — Threshold +2',
                     description: 'Blessed increases damage thresholds by +2.',
-                    condition: { type: 'status', subject: 'self', status: 'blessed' },
+                    condition: { type: 'status', subject: 'self', status: 'bless' },
                     effect: { type: 'damage_reduction', applyTo: 'self', thresholdMajor: 2, thresholdSevere: 2 },
                     duration: { mode: 'permanent' },
                 },
@@ -308,7 +310,7 @@ export const EFFECT_PRESETS = [
                 data: {
                     name: 'Poisoned — Extra Damage Taken',
                     description: 'Poisoned targets take 1.5× incoming damage.',
-                    condition: { type: 'status', subject: 'self', status: 'poisoned' },
+                    condition: { type: 'status', subject: 'self', status: 'poison' },
                     effect: { type: 'damage_multiplier', damageMultiplier: 1.5, incomingDamageType: 'any' },
                     duration: { mode: 'permanent' },
                 },
@@ -320,7 +322,7 @@ export const EFFECT_PRESETS = [
                 data: {
                     name: 'Weakened — Roll Penalty',
                     description: 'Weakened imposes -2 to all rolls.',
-                    condition: { type: 'status', subject: 'self', status: 'weakened' },
+                    condition: { type: 'status', subject: 'self', status: 'downgrade' },
                     effect: { type: 'roll_bonus', applyTo: 'self', rollBonus: -2 },
                     duration: { mode: 'permanent' },
                 },
@@ -830,6 +832,30 @@ export class ConditionalEffectsManager extends HandlebarsApplicationMixin(Applic
             });
         });
 
+        // Delete All effects (double-confirm)
+        el.querySelector('[data-action="deleteAllEffects"]')?.addEventListener('click', async e => {
+            e.preventDefault();
+            const count = getAllEffects().length;
+            if (!count) return;
+            const first = await foundry.applications.api.DialogV2.confirm({
+                window: { title: 'Delete All Effects' },
+                content: `<p>This will permanently delete all <strong>${count}</strong> conditional effect(s) and remove them from every item and actor.</p><p>Continue?</p>`,
+                yes: { label: 'Delete All', icon: 'fas fa-trash' },
+                no:  { label: 'Cancel' },
+            });
+            if (!first) return;
+            const second = await foundry.applications.api.DialogV2.confirm({
+                window: { title: 'Are you sure?' },
+                content: `<p>This <strong>cannot be undone</strong>. All ${count} effect(s) will be permanently deleted.</p><p>Are you absolutely sure?</p>`,
+                yes: { label: 'Yes, delete everything', icon: 'fas fa-exclamation-triangle' },
+                no:  { label: 'Cancel' },
+            });
+            if (!second) return;
+            await saveAllEffects([]);
+            ui.notifications.info(`Deleted all ${count} conditional effect(s).`);
+            this.render();
+        });
+
         // Scene override buttons
         el.querySelectorAll('[data-action="overrideDisable"]').forEach(btn => {
             btn.addEventListener('click', async e => {
@@ -868,6 +894,14 @@ export class ConditionalEffectsManager extends HandlebarsApplicationMixin(Applic
             });
         });
 
+        el.querySelectorAll('[data-action="applyActorPicker"]').forEach(btn => {
+            btn.addEventListener('click', async e => {
+                e.preventDefault();
+                const { effectId } = btn.closest('[data-effect-id]').dataset;
+                await this._openActorPickerDialog(effectId);
+            });
+        });
+
         // Preset creation
         el.querySelectorAll('[data-action="createFromPreset"]').forEach(btn => {
             btn.addEventListener('click', async e => {
@@ -883,6 +917,106 @@ export class ConditionalEffectsManager extends HandlebarsApplicationMixin(Applic
                 this.render();
             });
         });
+    }
+
+    // ── Actor Picker dialog (for "All" button in Scene Overrides) ────────────
+    async _openActorPickerDialog(effectId) {
+        const scene = game.scenes.active;
+        if (!scene) { ui.notifications.warn('No active scene.'); return; }
+
+        const effect = getAllEffects().find(e => e.id === effectId);
+        if (!effect) return;
+
+        // Collect unique actors from scene tokens (deduplicate by actor UUID)
+        const actorMap = new Map();
+        for (const tokenDoc of scene.tokens) {
+            const actor = tokenDoc.actor;
+            if (!actor) continue;
+            const key = actor.uuid;
+            if (!actorMap.has(key)) {
+                actorMap.set(key, {
+                    uuid: key,
+                    name: tokenDoc.name,
+                    img:  tokenDoc.texture?.src ?? actor.img ?? 'icons/svg/mystery-man.svg',
+                    alreadyHas: (actor.getFlag(MODULE_ID, FLAG_ACTOR) ?? []).includes(effectId),
+                });
+            }
+        }
+        const actors = Array.from(actorMap.values())
+            .sort((a, b) => a.name.localeCompare(b.name));
+
+        if (!actors.length) {
+            ui.notifications.warn('No actors found on the active scene.');
+            return;
+        }
+
+        // Build checkbox HTML — all checked by default
+        const rows = actors.map(a => `
+            <label class="dce-actor-pick-row">
+                <input type="checkbox" class="dce-actor-cb" data-actor-uuid="${a.uuid}" checked>
+                <img src="${a.img}" width="30" height="30">
+                <span class="dce-actor-pick-name">${a.name}</span>
+                ${a.alreadyHas ? '<span class="dce-actor-pick-tag">already assigned</span>' : ''}
+            </label>
+        `).join('');
+
+        const content = `
+            <p class="dce-hint" style="margin-bottom:8px;">
+                <i class="fas fa-circle-info"></i>
+                Checked actors will receive <strong>${effect.name}</strong>. Uncheck to exclude.
+            </p>
+            <div class="dce-actor-pick-controls">
+                <button type="button" class="dce-btn-link" data-pick-action="all">Select All</button>
+                <button type="button" class="dce-btn-link" data-pick-action="none">Select None</button>
+            </div>
+            <div class="dce-actor-pick-list">${rows}</div>
+        `;
+
+        const selectedUuids = await foundry.applications.api.DialogV2.confirm({
+            window: { title: `Assign: ${effect.name}`, icon: 'fas fa-list-check' },
+            content,
+            yes: {
+                label: 'Assign',
+                icon: 'fas fa-check',
+                callback: (event, button, dialog) => {
+                    const root = button.closest('.window-content') ?? button.form ?? dialog;
+                    const checked = root.querySelectorAll('input.dce-actor-cb:checked');
+                    return Array.from(checked).map(cb => cb.dataset.actorUuid);
+                },
+            },
+            no: { label: 'Cancel' },
+            render: (event, html) => {
+                // Wire up Select All / Select None buttons
+                const root = html instanceof HTMLElement ? html : html.element ?? html;
+                root.querySelector('[data-pick-action="all"]')?.addEventListener('click', () => {
+                    root.querySelectorAll('input.dce-actor-cb').forEach(cb => cb.checked = true);
+                });
+                root.querySelector('[data-pick-action="none"]')?.addEventListener('click', () => {
+                    root.querySelectorAll('input.dce-actor-cb').forEach(cb => cb.checked = false);
+                });
+            },
+        });
+
+        if (!selectedUuids || !selectedUuids.length) return;
+
+        // Assign effect to each selected actor via FLAG_ACTOR
+        let assigned = 0;
+        for (const uuid of selectedUuids) {
+            const actor = await fromUuid(uuid);
+            if (!actor) continue;
+            const existing = actor.getFlag(MODULE_ID, FLAG_ACTOR) ?? [];
+            if (!existing.includes(effectId)) {
+                await actor.setFlag(MODULE_ID, FLAG_ACTOR, [...existing, effectId]);
+                assigned++;
+            }
+        }
+
+        if (assigned > 0) {
+            ui.notifications.info(`Assigned "${effect.name}" to ${assigned} actor(s).`);
+        } else {
+            ui.notifications.info(`All selected actors already had "${effect.name}".`);
+        }
+        this.render();
     }
 }
 
