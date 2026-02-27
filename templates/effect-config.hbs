@@ -398,21 +398,31 @@
   </fieldset>
 
   <fieldset class="dce-fieldset">
-    <legend>Chains — also trigger these effects</legend>
+    <legend>Chains — also trigger these effects
+      <span class="dce-hint-icon" title="When this effect fires, also trigger the chained effects. Max depth: 3.">
+        <i class="fas fa-circle-question"></i>
+      </span>
+    </legend>
     <div class="dce-fieldset-inner">
-      <div class="dce-form-row">
-        <label>Chain Effects
-          <span class="dce-hint-icon" title="When this effect fires, also trigger the selected effects. Max depth: 3.">
-            <i class="fas fa-circle-question"></i>
+      <div class="dce-chain-tags" data-chain-container>
+        {{#each chainableEffects}}
+          {{#if selected}}
+          <span class="dce-chain-tag" data-chain-id="{{id}}">
+            <input type="hidden" name="effect.chainEffectIds" value="{{id}}">
+            {{name}}
+            <button type="button" class="dce-chain-tag-remove" data-action="removeChain" title="Remove chain">
+              <i class="fas fa-xmark"></i>
+            </button>
           </span>
-        </label>
-        <select name="effect.chainEffectIds" multiple class="dce-chain-select" size="4">
-          {{#each chainableEffects}}
-          <option value="{{id}}" {{#if selected}}selected{{/if}}>{{name}}</option>
-          {{/each}}
-        </select>
+          {{/if}}
+        {{/each}}
+        {{#unless hasChains}}
+          <em class="dce-chain-empty">No chained effects</em>
+        {{/unless}}
       </div>
-      <p class="dce-help"><em>Hold Ctrl/Cmd to select multiple. Leave empty for no chains.</em></p>
+      <button type="button" class="dce-btn-secondary" data-action="openChainPicker">
+        <i class="fas fa-link"></i> Chain Effects&hellip;
+      </button>
     </div>
   </fieldset>
 

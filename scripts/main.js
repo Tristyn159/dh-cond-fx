@@ -547,7 +547,10 @@ async function _tickCountdowns(actor, tickEvent) {
  * Chained effects inherit the same context (actor, target, action) and are
  * evaluated independently. Chains are depth-limited to prevent infinite loops.
  */
-async function _processChainedEffects(actor, parentEffect, ctx, applicationKind, _depth = 0) {
+function _processChainedEffects(actor, parentEffect, ctx, applicationKind, _depth = 0, _pending = null) {
+    const isRoot = !_pending;
+    const pending = _pending ?? { statuses: new Set(), tasks: [] };
+
     const MAX_CHAIN_DEPTH = 3;
     if (_depth >= MAX_CHAIN_DEPTH) return;
     const chainIds = parentEffect.effect?.chainEffectIds;
@@ -559,46 +562,130 @@ async function _processChainedEffects(actor, parentEffect, ctx, applicationKind,
         if (!chainedEffect) continue;
         if (!isEffectActive(chainedEffect)) continue;
         if (!_canApplyByDuration(actor, chainedEffect)) continue;
-        if (!_evaluateCondition(chainedEffect.condition, ctx)) continue;
+        if (!_evaluateCondition(chainedEffect.condition, ctx, pending.statuses)) continue;
 
         logDebug(DEBUG_CATEGORIES.CORE, `Chain: "${parentEffect.name}" → "${chainedEffect.name}" on ${actor.name} (depth ${_depth + 1})`);
 
-        // Apply the chained effect based on its type
         const eff = chainedEffect.effect;
+
+        // ── Roll effects — SYNC (modifies config before hook returns) ─────────
         if (eff.type === 'roll_bonus' || eff.type === 'advantage' || eff.type === 'disadvantage') {
             if (ctx.action?.roll) _applyRollEffect(chainedEffect, ctx.action);
         }
-        // Chained status application — auto-applied with a log notification
-        if (eff.type === 'apply_status' || eff.type === 'status_on_hit') {
-            const statusId = eff.type === 'apply_status' ? eff.applyStatus : eff.statusToApply;
+
+        // ── apply_status — targets SELF (the effect owner), queued async ──────
+        if (eff.type === 'apply_status') {
+            const statusId = eff.applyStatus;
             if (statusId) {
-                const target = ctx.target ?? ctx.self;
-                if (target) {
-                    await target.toggleStatusEffect(statusId, { active: true });
-                    logDebug(DEBUG_CATEGORIES.CORE, `Chain applied status "${statusId}" to ${target.name}`);
+                pending.statuses.add(statusId);
+                const statusTarget = ctx.self;
+                if (statusTarget) {
+                    pending.tasks.push(() => statusTarget.toggleStatusEffect(statusId, { active: true }));
+                    logDebug(DEBUG_CATEGORIES.CORE, `Chain queued status "${statusId}" on ${statusTarget.name} (pending for downstream conditions)`);
                 }
             }
         }
-        // Chained stress application
-        if (eff.type === 'stress_on_hit') {
-            const stressAmt = Number(eff.stressAmount ?? 1);
-            const target = ctx.target ?? ctx.self;
-            if (target) {
-                const current = target.system?.resources?.stress?.value ?? 0;
-                const max = target.system?.resources?.stress?.max ?? 6;
-                const newVal = Math.min(current + stressAmt, max);
-                if (newVal !== current) {
-                    await target.update({ 'system.resources.stress.value': newVal });
-                    logDebug(DEBUG_CATEGORIES.CORE, `Chain applied ${stressAmt} Stress to ${target.name}`);
+
+        // ── status_on_hit — targets the OTHER actor, queued async ─────────────
+        if (eff.type === 'status_on_hit') {
+            const statusId = eff.statusToApply;
+            if (statusId) {
+                const statusTarget = ctx.target ?? ctx.self;
+                if (statusTarget) {
+                    pending.tasks.push(() => statusTarget.toggleStatusEffect(statusId, { active: true }));
+                    logDebug(DEBUG_CATEGORIES.CORE, `Chain queued status "${statusId}" on ${statusTarget.name}`);
                 }
             }
+        }
+
+        // ── stress_on_hit — queued async ──────────────────────────────────────
+        if (eff.type === 'stress_on_hit') {
+            const stressAmt = Number(eff.stressAmount ?? 1);
+            const stressTarget = ctx.target ?? ctx.self;
+            if (stressTarget) {
+                pending.tasks.push(async () => {
+                    const current = stressTarget.system?.resources?.stress?.value ?? 0;
+                    const max     = stressTarget.system?.resources?.stress?.max ?? 6;
+                    const newVal  = Math.min(current + stressAmt, max);
+                    if (newVal !== current) {
+                        await stressTarget.update({ 'system.resources.stress.value': newVal });
+                        logDebug(DEBUG_CATEGORIES.CORE, `Chain applied ${stressAmt} Stress to ${stressTarget.name}`);
+                    }
+                });
+            }
+        }
+
+        // ── defense_bonus — SYNC patch config.targets + queued AE sync ────────
+        if (eff.type === 'defense_bonus') {
+            const bonus = Number(eff.defenseBonus ?? 0);
+            if (bonus) {
+                if (ctx.action?.targets) {
+                    for (const ct of ctx.action.targets) {
+                        if (ct.actorId !== ctx.self?.uuid) continue;
+                        if (typeof ct.evasion === 'number')    ct.evasion    += bonus;
+                        if (typeof ct.difficulty === 'number') ct.difficulty += bonus;
+                        logDebug(DEBUG_CATEGORIES.CORE, `Chain: defense bonus ${bonus > 0 ? '+' : ''}${bonus} patched on "${ct.name}"`);
+                    }
+                }
+                if (ctx.self) {
+                    pending.tasks.push(() => _syncEvasionActiveEffects(ctx.self));
+                }
+            }
+        }
+
+        // ── damage_reduction — queued AE sync ─────────────────────────────────
+        if (eff.type === 'damage_reduction') {
+            if (ctx.self) {
+                pending.tasks.push(() => _syncThresholdActiveEffects(ctx.self));
+                logDebug(DEBUG_CATEGORIES.CORE, `Chain queued threshold sync for ${ctx.self.name}`);
+            }
+        }
+
+        // ── proficiency_bonus — queued AE sync ───────────────────────────────
+        if (eff.type === 'proficiency_bonus') {
+            if (ctx.self) {
+                pending.tasks.push(() => _syncProficiencyActiveEffects(ctx.self));
+                logDebug(DEBUG_CATEGORIES.CORE, `Chain queued proficiency sync for ${ctx.self.name}`);
+            }
+        }
+
+        // ── damage_bonus — SYNC if in damage context (action.roll is array) ──
+        if (eff.type === 'damage_bonus') {
+            if (Array.isArray(ctx.action?.roll)) {
+                const parts = [];
+                if (eff.dice?.trim())              parts.push(eff.dice.trim());
+                if (eff.bonus && eff.bonus !== 0)  parts.push(String(eff.bonus));
+                if (parts.length) {
+                    const bonusFormula = parts.join(' + ');
+                    for (const part of ctx.action.roll) {
+                        if (part.applyTo !== 'hitPoints') continue;
+                        part.extraFormula = part.extraFormula
+                            ? `${part.extraFormula} + ${bonusFormula}`
+                            : bonusFormula;
+                        logDebug(DEBUG_CATEGORIES.CORE, `Chain: damage bonus "${bonusFormula}" applied from "${chainedEffect.name}"`);
+                        break;
+                    }
+                }
+            }
+        }
+
+        // ── damage_multiplier — log only (needs preTakeDamage damage object) ─
+        if (eff.type === 'damage_multiplier') {
+            logDebug(DEBUG_CATEGORIES.CORE, `Chain: damage_multiplier "${chainedEffect.name}" noted (multipliers apply at preTakeDamage only)`);
         }
 
         _consumeDuration(actor, chainedEffect, applicationKind);
         _consumeTriggerIfNeeded(actor, chainedEffect);
 
-        // Recurse for nested chains
-        await _processChainedEffects(actor, chainedEffect, ctx, applicationKind, _depth + 1);
+        // Recurse SYNCHRONOUSLY — pending statuses propagate to downstream conditions
+        _processChainedEffects(actor, chainedEffect, ctx, applicationKind, _depth + 1, pending);
+    }
+
+    // At root level: fire off all queued async tasks
+    if (isRoot && pending.tasks.length) {
+        Promise.resolve().then(async () => {
+            for (const task of pending.tasks) await task();
+        });
     }
 }
 
@@ -1278,6 +1365,57 @@ async function _syncStatusActiveEffects(actor, { attackerOverride = null } = {})
                     logDebug(DEBUG_CATEGORIES.STATUS_AE, `  "${ce.name}": DESIRED (status="${statusId}")`);
                 }
 
+                // ── Chain expansion: follow chains from desired effects to find
+                //    additional apply_status effects that should also be active.
+                //    Uses a pending-statuses set so downstream conditions can "see"
+                //    statuses queued by upstream chain steps (e.g. prone → vulnerable).
+                const allModuleEffects = getAllEffects();
+                const pendingStatuses = new Set([...desired.values()].map(d => d.statusId));
+                // Also include statuses the actor already has (from non-chain sources)
+                for (const s of (actor.statuses ?? [])) pendingStatuses.add(s);
+
+                const MAX_CHAIN_DEPTH = 3;
+                let chainExpanded = true;
+                let chainPass = 0;
+                while (chainExpanded && chainPass < MAX_CHAIN_DEPTH) {
+                    chainExpanded = false;
+                    chainPass++;
+                    for (const [sourceId] of [...desired]) {
+                        const sourceEffect = allModuleEffects.find(e => e.id === sourceId);
+                        if (!sourceEffect) continue;
+                        const chainIds = sourceEffect.effect?.chainEffectIds;
+                        if (!Array.isArray(chainIds) || !chainIds.length) continue;
+
+                        for (const chainId of chainIds) {
+                            if (desired.has(chainId)) continue; // already discovered
+                            const chained = allModuleEffects.find(e => e.id === chainId);
+                            if (!chained) continue;
+                            if (chained.effect?.type !== 'apply_status') continue;
+                            if (!isEffectActive(chained)) continue;
+
+                            const condTarget = (chained.condition?.rangeSubject === 'attacker' && attackerOverride)
+                                ? attackerOverride : null;
+                            const condResult = _evaluateCondition(
+                                chained.condition,
+                                { self: actor, target: condTarget, action: null },
+                                pendingStatuses
+                            );
+                            if (!condResult) {
+                                logDebug(DEBUG_CATEGORIES.STATUS_AE, `  Chain "${sourceEffect.name}" → "${chained.name}": condition NOT MET → skip`);
+                                continue;
+                            }
+
+                            const chainStatusId = chained.effect.applyStatus;
+                            if (!chainStatusId) continue;
+
+                            desired.set(chained.id, { statusId: chainStatusId, name: chained.name });
+                            pendingStatuses.add(chainStatusId);
+                            chainExpanded = true;
+                            logDebug(DEBUG_CATEGORIES.STATUS_AE, `  Chain "${sourceEffect.name}" → "${chained.name}": DESIRED via chain (status="${chainStatusId}")`);
+                        }
+                    }
+                }
+
                 // Find existing dce status AEs on this actor.
                 const existing = actor.effects.filter(ae =>
                     ae.getFlag(MODULE_ID, 'sourceEffectId') !== undefined &&
@@ -1820,7 +1958,7 @@ function _evaluateRangeCondition(condition, self, target = null, action = null) 
     return false;
 }
 
-function _evaluateCondition(condition, { self, target, action, incomingDamageTypes }) {
+function _evaluateCondition(condition, { self, target, action, incomingDamageTypes }, pendingStatuses) {
     if (condition.type === 'always') {
         logDebug(DEBUG_CATEGORIES.CONDITIONS, `    Condition [always] on ${self?.name ?? '?'}: PASS`);
         return true;
@@ -1938,8 +2076,12 @@ function _evaluateCondition(condition, { self, target, action, incomingDamageTyp
 
     if (condition.type === 'status') {
         const has = subject.statuses?.has(condition.status) ?? false;
-        logDebug(DEBUG_CATEGORIES.CONDITIONS, `    Condition [status="${condition.status}"] on ${subject.name}: ${has ? 'PASS' : 'FAIL'} (statuses: [${[...(subject.statuses ?? [])].join(', ')}])`);
-        return has;
+        // During chain processing, also check statuses queued by earlier chain steps.
+        // Only applies to 'self' subject — pending statuses are for ctx.self.
+        const isPending = (condition.subject !== 'target') && pendingStatuses?.has(condition.status);
+        const result = has || isPending;
+        logDebug(DEBUG_CATEGORIES.CONDITIONS, `    Condition [status="${condition.status}"] on ${subject.name}: ${result ? 'PASS' : 'FAIL'}${isPending ? ' (via pending chain status)' : ''} (statuses: [${[...(subject.statuses ?? [])].join(', ')}])`);
+        return result;
     }
 
     if (condition.type === 'attribute') {

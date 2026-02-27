@@ -1048,9 +1048,10 @@ export class ConditionalEffectConfig extends HandlebarsApplicationMixin(Applicat
         const chainableEffects = getAllEffects()
             .filter(e => e.id !== this.effectId) // Don't allow self-chain
             .map(e => ({ id: e.id, name: e.name, selected: chainIds.has(e.id) }));
+        const hasChains = chainableEffects.some(e => e.selected);
         return {
             effect, effectId: this.effectId,
-            chainableEffects,
+            chainableEffects, hasChains,
             statuses: STATUSES, attributes: ATTRIBUTES, operators: OPERATORS,
             conditionTypes: CONDITION_TYPES, effectTypes: EFFECT_TYPES,
             damageTypes: DAMAGE_TYPES, incomingDamageTypes: INCOMING_DAMAGE_TYPES,
@@ -1096,10 +1097,28 @@ export class ConditionalEffectConfig extends HandlebarsApplicationMixin(Applicat
         el.querySelector('[name="duration.mode"]')?.addEventListener('change',  () => this._updateVisibility());
         this._updateVisibility();
 
+        // ── Chain Effects picker button ───────────────────────────────────────
+        el.querySelector('[data-action="openChainPicker"]')?.addEventListener('click', () => {
+            this._openChainPickerDialog();
+        });
+
+        // ── Chain tag X-button delegation ─────────────────────────────────────
+        el.querySelector('[data-chain-container]')?.addEventListener('click', e => {
+            const removeBtn = e.target.closest('[data-action="removeChain"]');
+            if (!removeBtn) return;
+            const tag = removeBtn.closest('.dce-chain-tag');
+            if (!tag) return;
+            tag.remove();
+            const container = el.querySelector('[data-chain-container]');
+            if (!container.querySelector('.dce-chain-tag')) {
+                container.insertAdjacentHTML('beforeend', '<em class="dce-chain-empty">No chained effects</em>');
+            }
+        });
+
         el.addEventListener('submit', async e => {
             e.preventDefault();
             const fd  = new FormData(el);
-            // Multi-select values need special handling — getAll returns array
+            // Chain IDs come from hidden inputs inside chain tags — getAll collects them all
             const chainIds = fd.getAll('effect.chainEffectIds').filter(Boolean);
             fd.delete('effect.chainEffectIds');
             const raw = foundry.utils.expandObject(Object.fromEntries(fd.entries()));
@@ -1177,6 +1196,88 @@ export class ConditionalEffectConfig extends HandlebarsApplicationMixin(Applicat
     _toggle(selector, visible) {
         const el = this.element.querySelector(selector);
         if (el) el.classList.toggle('dce-hidden', !visible);
+    }
+
+    async _openChainPickerDialog() {
+        const allEffects = getAllEffects().filter(e => e.id !== this.effectId);
+        if (!allEffects.length) {
+            ui.notifications.warn('No other effects to chain. Create more effects first.');
+            return;
+        }
+
+        // Read currently chained IDs from hidden inputs in the DOM
+        const currentChainIds = new Set(
+            [...this.element.querySelectorAll('[data-chain-container] input[name="effect.chainEffectIds"]')]
+                .map(inp => inp.value)
+        );
+
+        // Build checkbox list HTML
+        const rows = allEffects.map(eff => {
+            const checked = currentChainIds.has(eff.id) ? 'checked' : '';
+            return `<label class="dce-chain-pick-row">
+                <input type="checkbox" class="dce-chain-cb" value="${eff.id}" ${checked}>
+                <span class="dce-chain-pick-name">${eff.name}</span>
+            </label>`;
+        }).join('');
+
+        const content = `
+            <div class="dce-chain-pick-controls">
+                <button type="button" class="dce-btn-link" data-pick-action="all">Select All</button>
+                <button type="button" class="dce-btn-link" data-pick-action="none">Select None</button>
+            </div>
+            <div class="dce-chain-pick-list">${rows}</div>
+        `;
+
+        const selectedIds = await foundry.applications.api.DialogV2.confirm({
+            window: { title: 'Chain Effects', icon: 'fas fa-link' },
+            content,
+            yes: {
+                label: 'Save Chains',
+                icon: 'fas fa-link',
+                callback: (event, button, dialog) => {
+                    const root = button.closest('.window-content') ?? button.form ?? dialog;
+                    const checked = root.querySelectorAll('input.dce-chain-cb:checked');
+                    return Array.from(checked).map(cb => cb.value);
+                },
+            },
+            no: { label: 'Cancel', icon: 'fas fa-times' },
+            render: (event, html) => {
+                const root = html instanceof HTMLElement ? html : html.element ?? html;
+                root.querySelector('[data-pick-action="all"]')?.addEventListener('click', () => {
+                    root.querySelectorAll('input.dce-chain-cb').forEach(cb => cb.checked = true);
+                });
+                root.querySelector('[data-pick-action="none"]')?.addEventListener('click', () => {
+                    root.querySelectorAll('input.dce-chain-cb').forEach(cb => cb.checked = false);
+                });
+            },
+        });
+
+        // If cancelled (false or null), do nothing
+        if (!selectedIds) return;
+
+        // Build effect name lookup
+        const effectMap = new Map(allEffects.map(e => [e.id, e.name]));
+
+        // Update the tag container in the DOM
+        const container = this.element.querySelector('[data-chain-container]');
+        container.innerHTML = '';
+
+        for (const id of selectedIds) {
+            const name = effectMap.get(id) ?? 'Unknown';
+            const tag = document.createElement('span');
+            tag.className = 'dce-chain-tag';
+            tag.dataset.chainId = id;
+            tag.innerHTML = `<input type="hidden" name="effect.chainEffectIds" value="${id}">`
+                + `${name}`
+                + `<button type="button" class="dce-chain-tag-remove" data-action="removeChain" title="Remove chain">`
+                + `<i class="fas fa-xmark"></i></button>`;
+            container.appendChild(tag);
+        }
+
+        // Show placeholder if none selected
+        if (!selectedIds.length) {
+            container.innerHTML = '<em class="dce-chain-empty">No chained effects</em>';
+        }
     }
 }
 
@@ -1417,6 +1518,38 @@ export class ActiveAssignmentsViewer extends HandlebarsApplicationMixin(Applicat
 
                 this.render();
             });
+        });
+
+        // Remove ALL assignments
+        el.querySelector('[data-action="removeAllAssignments"]')?.addEventListener('click', async () => {
+            const confirmed = await foundry.applications.api.DialogV2.confirm({
+                window: { title: 'Remove All Assignments', icon: 'fas fa-trash' },
+                content: '<p>This will remove <strong>all</strong> effect assignments from every actor, item, and scene override. The effect definitions themselves will not be deleted.</p><p>Are you sure?</p>',
+                yes: { label: 'Remove All', icon: 'fas fa-trash' },
+                no:  { label: 'Cancel', icon: 'fas fa-times' },
+            });
+            if (!confirmed) return;
+
+            // 1. Clear all scene overrides (PC toggles + NPC toggles)
+            const pcIds  = getPcToggles();
+            const npcIds = getNpcToggles();
+            for (const id of pcIds)  await setPcToggle(id, false);
+            for (const id of npcIds) await setNpcToggle(id, false);
+
+            // 2. Clear item-assigned effects from all actors
+            for (const actor of this._collectViewerActors()) {
+                for (const item of actor.items) {
+                    const ids = item.getFlag(MODULE_ID, FLAG_ASSIGNED) ?? [];
+                    if (ids.length) await item.setFlag(MODULE_ID, FLAG_ASSIGNED, []);
+                }
+
+                // 3. Clear actor-level (direct) assignments
+                const actorIds = actor.getFlag(MODULE_ID, FLAG_ACTOR) ?? [];
+                if (actorIds.length) await actor.setFlag(MODULE_ID, FLAG_ACTOR, []);
+            }
+
+            ui.notifications.info('All effect assignments have been removed.');
+            this.render();
         });
 
         // Register live-update hooks

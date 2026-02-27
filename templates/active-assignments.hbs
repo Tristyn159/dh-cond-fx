@@ -9,10 +9,16 @@
   </div>
   {{else}}
 
-  <p class="dce-assignments-hint">
-    <i class="fas fa-circle-info"></i>
-    Showing all actors with assigned conditional effects and their sources. If you remove a Scene Override effect, it will be removed from all actors.
-  </p>
+  <div class="dce-assignments-toolbar">
+    <p class="dce-assignments-hint">
+      <i class="fas fa-circle-info"></i>
+      Showing all actors with assigned conditional effects and their sources. If you remove a Scene Override effect, it will be removed from all actors.
+    </p>
+    <button type="button" class="dce-btn-danger-sm" data-action="removeAllAssignments"
+            title="Remove all assignments from all actors, items, and scene overrides">
+      <i class="fas fa-trash"></i> Remove All
+    </button>
+  </div>
 
   <div class="dce-assignments-list">
     {{#each actors}}

@@ -187,6 +187,49 @@
   font-size: 0.75em; color: #888; font-style: italic;
 }
 
+/* ── Chain Effect Tags ─────────────────────────────────────────────────── */
+.dce-chain-tags {
+  display: flex; flex-wrap: wrap; gap: 6px;
+  min-height: 28px; padding: 4px 0; margin-bottom: 6px;
+}
+.dce-chain-tag {
+  display: inline-flex; align-items: center; gap: 4px;
+  background: rgba(74, 111, 165, 0.12); border: 1px solid rgba(74, 111, 165, 0.35);
+  border-radius: 12px; padding: 2px 6px 2px 10px;
+  font-size: 0.85em; color: var(--color-text-dark-primary, #333);
+  line-height: 1.4;
+}
+.dce-chain-tag-remove {
+  background: none; border: none; cursor: pointer;
+  color: #999; padding: 0 2px; font-size: 0.8em; line-height: 1;
+}
+.dce-chain-tag-remove:hover { color: #c04040; }
+.dce-chain-empty {
+  color: #999; font-size: 0.85em; padding: 4px 0;
+}
+.dce-btn-secondary {
+  background: rgba(74, 111, 165, 0.08); border: 1px solid rgba(74, 111, 165, 0.3);
+  color: var(--color-text-hyperlink, #4a6fa5); border-radius: 4px;
+  padding: 4px 10px; cursor: pointer; font-size: 0.85em;
+}
+.dce-btn-secondary:hover { background: rgba(74, 111, 165, 0.18); }
+
+/* ── Chain Picker Dialog ───────────────────────────────────────────────── */
+.dce-chain-pick-controls {
+  display: flex; gap: 10px; margin-bottom: 6px;
+}
+.dce-chain-pick-list {
+  max-height: 340px; overflow-y: auto;
+  border: 1px solid var(--color-border-light, #ccc); border-radius: 4px;
+  padding: 4px;
+}
+.dce-chain-pick-row {
+  display: flex; align-items: center; gap: 8px;
+  padding: 4px 6px; cursor: pointer; border-radius: 3px;
+}
+.dce-chain-pick-row:hover { background: rgba(0,0,0,0.04); }
+.dce-chain-pick-name { font-size: 0.9em; }
+
 /* ── Effect Config form ──────────────────────────────────────────────────── */
 .dce-effect-config .window-content { padding: 0; }
 .dce-config-body { padding: 12px 16px; display: flex; flex-direction: column; gap: 12px; }
@@ -521,14 +564,24 @@
 .dce-assignments .window-content { padding: 0; }
 .dce-assignments-wrap { display: flex; flex-direction: column; height: 100%; overflow: hidden; }
 
+.dce-assignments-toolbar {
+  display: flex; align-items: center; gap: 8px;
+  background: var(--color-bg-header, #f5f0e8);
+  border-bottom: 1px solid var(--color-border-light, #ccc);
+  flex-shrink: 0; padding-right: 8px;
+}
 .dce-assignments-hint {
   padding: 7px 12px; margin: 0; font-size: 0.82em;
   color: var(--color-text-dark-secondary, #666);
-  background: var(--color-bg-header, #f5f0e8);
-  border-bottom: 1px solid var(--color-border-light, #ccc);
   display: flex; align-items: center; gap: 6px;
-  flex-shrink: 0;
+  flex: 1;
 }
+.dce-btn-danger-sm {
+  background: rgba(192, 64, 64, 0.08); border: 1px solid rgba(192, 64, 64, 0.3);
+  color: #c04040; border-radius: 4px;
+  padding: 3px 8px; cursor: pointer; font-size: 0.78em; white-space: nowrap;
+}
+.dce-btn-danger-sm:hover { background: rgba(192, 64, 64, 0.18); }
 
 .dce-assignments-list { flex: 1; overflow-y: auto; padding: 6px 0; }
 
