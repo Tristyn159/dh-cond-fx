@@ -56,9 +56,6 @@ https://raw.githubusercontent.com/Tristyn159/dh-cond-fx/main/module.json
   <img width="700" src="docs/presets.webp">
 </p>
 
-### Polarity System
-- Mark effects as **Beneficial** or **Detrimental**
-- Detrimental effects invert behavior: stat removals, granting bonuses to attackers instead of the owner (cursed items, debuffs, etc.)
 
 ### Debug Logging
 - Per-category debug toggles (Core, Damage Thresholds, Evasion AE, Status AE, Damage Math, Status On Hit)
